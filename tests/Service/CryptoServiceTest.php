@@ -5,7 +5,6 @@ namespace Tourze\TronAPI\Tests\Service;
 use Mdanter\Ecc\Primitives\PointInterface;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use Tourze\TronAPI\Exception\InvalidArgumentException;
 use Tourze\TronAPI\Exception\RuntimeException;
 use Tourze\TronAPI\Service\CryptoService;
 use Tourze\TronAPI\Tron;
