@@ -2,11 +2,11 @@
 
 namespace Tourze\TronAPI\Tests;
 
-use PHPUnit\Framework\Assert;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Tourze\TronAPI\Exception\RuntimeException;
 use Tourze\TronAPI\Provider\HttpProviderInterface;
+use Tourze\TronAPI\Provider\InMemoryHttpProvider;
 use Tourze\TronAPI\Support\BigInteger;
 use Tourze\TronAPI\TransactionBuilder;
 use Tourze\TronAPI\TRC20Contract;
@@ -14,6 +14,7 @@ use Tourze\TronAPI\Tron;
 use Tourze\TronAPI\TronAddress;
 use Tourze\TronAPI\TronManager;
 use Tourze\TronAPI\ValueObject\AddressValidation;
+use Tourze\TronAPI\ValueObject\NodeInfo;
 use Tourze\TronAPI\ValueObject\TransactionInfo;
 
 /**
@@ -22,6 +23,30 @@ use Tourze\TronAPI\ValueObject\TransactionInfo;
 #[CoversClass(Tron::class)]
 class TronTest extends TestCase
 {
+    private InMemoryHttpProvider $fullNodeProvider;
+
+    private InMemoryHttpProvider $solidityNodeProvider;
+
+    private Tron $tron;
+
+    protected function setUp(): void
+    {
+        $this->fullNodeProvider = new InMemoryHttpProvider();
+        $this->solidityNodeProvider = new InMemoryHttpProvider();
+
+        $manager = new TronManager([
+            'fullNode' => $this->fullNodeProvider,
+            'solidityNode' => $this->solidityNodeProvider,
+            'eventServer' => new InMemoryHttpProvider(),
+            'explorer' => new InMemoryHttpProvider(),
+        ]);
+
+        $this->tron = new Tron();
+        // 使用反射设置 manager
+        $reflection = new \ReflectionProperty(Tron::class, 'manager');
+        $reflection->setValue($this->tron, $manager);
+    }
+
     public function testClassExists(): void
     {
         $instance = new Tron();
@@ -149,8 +174,8 @@ class TronTest extends TestCase
         $tron = new Tron();
 
         // Test with actual provider
-        $mockProvider = $this->createMock(HttpProviderInterface::class);
-        $this->assertTrue($tron->isValidProvider($mockProvider));
+        $provider = new InMemoryHttpProvider();
+        $this->assertTrue($tron->isValidProvider($provider));
 
         // Test with non-provider
         $this->assertFalse($tron->isValidProvider(new \stdClass()));
@@ -186,22 +211,12 @@ class TronTest extends TestCase
 
     public function testGetAccount(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/getaccount', Assert::callback(function ($params) {
-                return isset($params['address']);
-            }))
-            ->willReturn([
-                'address' => '41e472f387585c2b58bc2c9bb4492bc1f17342cd0',
-                'balance' => 1000000,
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/getaccount', [
+            'address' => '41e472f387585c2b58bc2c9bb4492bc1f17342cd0',
+            'balance' => 1000000,
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $account = $tron->getAccount('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
+        $account = $this->tron->getAccount('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
 
         $this->assertIsArray($account);
         $this->assertArrayHasKey('address', $account);
@@ -210,58 +225,34 @@ class TronTest extends TestCase
 
     public function testGetBalance(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/getaccount')
-            ->willReturn([
-                'address' => '41e472f387585c2b58bc2c9bb4492bc1f17342cd0',
-                'balance' => 1000000,
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/getaccount', [
+            'address' => '41e472f387585c2b58bc2c9bb4492bc1f17342cd0',
+            'balance' => 1000000,
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $balance = $tron->getBalance('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
+        $balance = $this->tron->getBalance('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
 
         $this->assertSame(1000000, $balance);
     }
 
     public function testGetBalanceReturnsZeroWhenNoBalance(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/getaccount')
-            ->willReturn([
-                'address' => '41e472f387585c2b58bc2c9bb4492bc1f17342cd0',
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/getaccount', [
+            'address' => '41e472f387585c2b58bc2c9bb4492bc1f17342cd0',
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $balance = $tron->getBalance('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
+        $balance = $this->tron->getBalance('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
 
         $this->assertSame(0, $balance);
     }
 
     public function testGetBalanceWithFromTron(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/getaccount')
-            ->willReturn([
-                'balance' => 1000000,
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/getaccount', [
+            'balance' => 1000000,
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $balance = $tron->getBalance('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY', true);
+        $balance = $this->tron->getBalance('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY', true);
 
         // fromTron divides by 1000000
         $this->assertSame(1.0, $balance);
@@ -269,42 +260,26 @@ class TronTest extends TestCase
 
     public function testGetTokenBalance(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/getaccount')
-            ->willReturn([
-                'address' => '41e472f387585c2b58bc2c9bb4492bc1f17342cd0',
-                'assetV2' => [
-                    ['key' => 1000001, 'value' => 500000],
-                    ['key' => 1000002, 'value' => 300000],
-                ],
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/getaccount', [
+            'address' => '41e472f387585c2b58bc2c9bb4492bc1f17342cd0',
+            'assetV2' => [
+                ['key' => 1000001, 'value' => 500000],
+                ['key' => 1000002, 'value' => 300000],
+            ],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $balance = $tron->getTokenBalance(1000001, 'TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
+        $balance = $this->tron->getTokenBalance(1000001, 'TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
 
         $this->assertSame(500000, $balance);
     }
 
     public function testGetTokenBalanceReturnsZeroWhenNoAssets(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/getaccount')
-            ->willReturn([
-                'address' => '41e472f387585c2b58bc2c9bb4492bc1f17342cd0',
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/getaccount', [
+            'address' => '41e472f387585c2b58bc2c9bb4492bc1f17342cd0',
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $balance = $tron->getTokenBalance(1000001, 'TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
+        $balance = $this->tron->getTokenBalance(1000001, 'TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
 
         $this->assertSame(0, $balance);
     }
@@ -314,39 +289,23 @@ class TronTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Token id not found');
 
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/getaccount')
-            ->willReturn([
-                'assetV2' => [
-                    ['key' => 1000001, 'value' => 500000],
-                ],
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/getaccount', [
+            'assetV2' => [
+                ['key' => 1000001, 'value' => 500000],
+            ],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $tron->getTokenBalance(9999999, 'TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
+        $this->tron->getTokenBalance(9999999, 'TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
     }
 
     public function testGetCurrentBlock(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/getnowblock')
-            ->willReturn([
-                'blockID' => '00000000001234567890abcdef',
-                'block_header' => ['raw_data' => ['number' => 12345]],
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/getnowblock', [
+            'blockID' => '00000000001234567890abcdef',
+            'block_header' => ['raw_data' => ['number' => 12345]],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $block = $tron->getCurrentBlock();
+        $block = $this->tron->getCurrentBlock();
 
         $this->assertIsArray($block);
         $this->assertArrayHasKey('blockID', $block);
@@ -355,22 +314,12 @@ class TronTest extends TestCase
 
     public function testGetBlockByHash(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/getblockbyid', Assert::callback(function ($params) {
-                return isset($params['value']);
-            }))
-            ->willReturn([
-                'blockID' => '0000000000abcdef1234567890',
-                'block_header' => ['raw_data' => ['number' => 100]],
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/getblockbyid', [
+            'blockID' => '0000000000abcdef1234567890',
+            'block_header' => ['raw_data' => ['number' => 100]],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $block = $tron->getBlockByHash('0000000000abcdef1234567890');
+        $block = $this->tron->getBlockByHash('0000000000abcdef1234567890');
 
         $this->assertIsArray($block);
         $this->assertArrayHasKey('blockID', $block);
@@ -378,25 +327,20 @@ class TronTest extends TestCase
 
     public function testGetBlockByNumber(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/getblockbynum', Assert::callback(function ($params) {
-                return isset($params['num']) && 12345 === $params['num'];
-            }))
-            ->willReturn([
-                'blockID' => '0000000000003039',
-                'block_header' => ['raw_data' => ['number' => 12345]],
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/getblockbynum', [
+            'blockID' => '0000000000003039',
+            'block_header' => ['raw_data' => ['number' => 12345]],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $block = $tron->getBlockByNumber(12345);
+        $block = $this->tron->getBlockByNumber(12345);
 
         $this->assertIsArray($block);
         $this->assertArrayHasKey('blockID', $block);
+
+        // 验证请求参数
+        $lastRequest = $this->fullNodeProvider->getLastRequest();
+        $this->assertNotNull($lastRequest);
+        $this->assertSame(12345, $lastRequest['payload']['num']);
     }
 
     public function testGetBlockByNumberThrowsExceptionForInvalidNumber(): void
@@ -413,35 +357,20 @@ class TronTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Block not found');
 
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->willReturn([])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/getblockbynum', []);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $tron->getBlockByNumber(99999999);
+        $this->tron->getBlockByNumber(99999999);
     }
 
     public function testGetBlock(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/getnowblock')
-            ->willReturn([
-                'blockID' => 'current_block',
-                'block_header' => ['raw_data' => ['number' => 99999]],
-            ])
-        ;
-
-        $tron = new Tron();
-        $tron->setManager($mockManager);
+        $this->fullNodeProvider->setResponse('wallet/getnowblock', [
+            'blockID' => 'current_block',
+            'block_header' => ['raw_data' => ['number' => 99999]],
+        ]);
 
         // Test with 'latest' (default)
-        $block = $tron->getBlock();
+        $block = $this->tron->getBlock();
 
         $this->assertIsArray($block);
         $this->assertArrayHasKey('blockID', $block);
@@ -459,25 +388,20 @@ class TronTest extends TestCase
 
     public function testGetTransaction(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/gettransactionbyid', Assert::callback(function ($params) {
-                return isset($params['value']) && 'abc123' === $params['value'];
-            }))
-            ->willReturn([
-                'txID' => 'abc123',
-                'raw_data' => ['contract' => []],
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/gettransactionbyid', [
+            'txID' => 'abc123',
+            'raw_data' => ['contract' => []],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $tx = $tron->getTransaction('abc123');
+        $tx = $this->tron->getTransaction('abc123');
 
         $this->assertIsArray($tx);
         $this->assertArrayHasKey('txID', $tx);
+
+        // 验证请求参数
+        $lastRequest = $this->fullNodeProvider->getLastRequest();
+        $this->assertNotNull($lastRequest);
+        $this->assertSame('abc123', $lastRequest['payload']['value']);
     }
 
     public function testGetTransactionThrowsExceptionWhenNotFound(): void
@@ -485,41 +409,30 @@ class TronTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Transaction not found');
 
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->willReturn([])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/gettransactionbyid', []);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $tron->getTransaction('nonexistent');
+        $this->tron->getTransaction('nonexistent');
     }
 
     public function testGetTransactionInfo(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('walletsolidity/gettransactioninfobyid', Assert::callback(function ($params) {
-                return isset($params['value']) && 'txid123' === $params['value'];
-            }))
-            ->willReturn([
-                'id' => 'txid123',
-                'fee' => 100000,
-                'blockNumber' => 12345,
-            ])
-        ;
+        // walletsolidity 请求会路由到 solidityNode
+        $this->solidityNodeProvider->setResponse('walletsolidity/gettransactioninfobyid', [
+            'id' => 'txid123',
+            'fee' => 100000,
+            'blockNumber' => 12345,
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $info = $tron->getTransactionInfo('txid123');
+        $info = $this->tron->getTransactionInfo('txid123');
 
         $this->assertIsArray($info);
         $this->assertArrayHasKey('id', $info);
         $this->assertArrayHasKey('fee', $info);
+
+        // 验证请求参数
+        $lastRequest = $this->solidityNodeProvider->getLastRequest();
+        $this->assertNotNull($lastRequest);
+        $this->assertSame('txid123', $lastRequest['payload']['value']);
     }
 
     public function testSignTransaction(): void
@@ -610,20 +523,10 @@ class TronTest extends TestCase
 
     public function testSendRawTransaction(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/broadcasttransaction', Assert::callback(function ($params) {
-                return isset($params['signature']) && isset($params['txID']);
-            }))
-            ->willReturn([
-                'result' => true,
-                'txid' => 'broadcasted_tx_id',
-            ])
-        ;
-
-        $tron = new Tron();
-        $tron->setManager($mockManager);
+        $this->fullNodeProvider->setResponse('wallet/broadcasttransaction', [
+            'result' => true,
+            'txid' => 'broadcasted_tx_id',
+        ]);
 
         $signedTx = [
             'txID' => 'abc123',
@@ -631,7 +534,7 @@ class TronTest extends TestCase
             'signature' => ['sig123'],
         ];
 
-        $result = $tron->sendRawTransaction($signedTx);
+        $result = $this->tron->sendRawTransaction($signedTx);
 
         $this->assertIsArray($result);
         $this->assertArrayHasKey('result', $result);
@@ -654,68 +557,44 @@ class TronTest extends TestCase
 
     public function testGetBlockTransactionCount(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/getnowblock')
-            ->willReturn([
-                'blockID' => 'block123',
-                'transactions' => [
-                    ['txID' => 'tx1'],
-                    ['txID' => 'tx2'],
-                    ['txID' => 'tx3'],
-                ],
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/getnowblock', [
+            'blockID' => 'block123',
+            'transactions' => [
+                ['txID' => 'tx1'],
+                ['txID' => 'tx2'],
+                ['txID' => 'tx3'],
+            ],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $count = $tron->getBlockTransactionCount();
+        $count = $this->tron->getBlockTransactionCount();
 
         $this->assertSame(3, $count);
     }
 
     public function testGetBlockTransactionCountReturnsZeroWhenNoTransactions(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/getnowblock')
-            ->willReturn([
-                'blockID' => 'block123',
-                'transactions' => [],
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/getnowblock', [
+            'blockID' => 'block123',
+            'transactions' => [],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $count = $tron->getBlockTransactionCount();
+        $count = $this->tron->getBlockTransactionCount();
 
         $this->assertSame(0, $count);
     }
 
     public function testGetTransactionFromBlock(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/getnowblock')
-            ->willReturn([
-                'blockID' => 'block123',
-                'transactions' => [
-                    ['txID' => 'tx1'],
-                    ['txID' => 'tx2'],
-                    ['txID' => 'tx3'],
-                ],
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/getnowblock', [
+            'blockID' => 'block123',
+            'transactions' => [
+                ['txID' => 'tx1'],
+                ['txID' => 'tx2'],
+                ['txID' => 'tx3'],
+            ],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $tx = $tron->getTransactionFromBlock(null, 1);
+        $tx = $this->tron->getTransactionFromBlock(null, 1);
 
         $this->assertIsArray($tx);
         $this->assertSame('tx2', $tx['txID']);
@@ -735,41 +614,24 @@ class TronTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Transaction not found in block');
 
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->willReturn([
-                'blockID' => 'block123',
-                'transactions' => [
-                    ['txID' => 'tx1'],
-                ],
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/getnowblock', [
+            'blockID' => 'block123',
+            'transactions' => [
+                ['txID' => 'tx1'],
+            ],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $tron->getTransactionFromBlock(null, 5);
+        $this->tron->getTransactionFromBlock(null, 5);
     }
 
     public function testValidateAddress(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/validateaddress', Assert::callback(function ($params) {
-                return isset($params['address']);
-            }))
-            ->willReturn([
-                'result' => true,
-                'message' => 'Valid address',
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/validateaddress', [
+            'result' => true,
+            'message' => 'Valid address',
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $result = $tron->validateAddress('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
+        $result = $this->tron->validateAddress('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
 
         $this->assertIsArray($result);
         $this->assertArrayHasKey('result', $result);
@@ -793,58 +655,34 @@ class TronTest extends TestCase
 
     public function testGetTransactionCount(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/totaltransaction')
-            ->willReturn([
-                'num' => 123456,
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/totaltransaction', [
+            'num' => 123456,
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $count = $tron->getTransactionCount();
+        $count = $this->tron->getTransactionCount();
 
         $this->assertSame(123456, $count);
     }
 
     public function testGetTransactionCountReturnsZeroWhenNoData(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/totaltransaction')
-            ->willReturn([])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/totaltransaction', []);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $count = $tron->getTransactionCount();
+        $count = $this->tron->getTransactionCount();
 
         $this->assertSame(0, $count);
     }
 
     public function testListNodes(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/listnodes')
-            ->willReturn([
-                'nodes' => [
-                    ['address' => ['host' => '7f000001', 'port' => 8080]],
-                    ['address' => ['host' => 'c0a80001', 'port' => 8090]],
-                ],
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/listnodes', [
+            'nodes' => [
+                ['address' => ['host' => '7f000001', 'port' => 8080]],
+                ['address' => ['host' => 'c0a80001', 'port' => 8090]],
+            ],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $nodes = $tron->listNodes();
+        $nodes = $this->tron->listNodes();
 
         $this->assertIsArray($nodes);
         $this->assertCount(2, $nodes);
@@ -852,45 +690,107 @@ class TronTest extends TestCase
 
     public function testListNodesReturnsEmptyArrayWhenNoNodes(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/listnodes')
-            ->willReturn([])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/listnodes', []);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $nodes = $tron->listNodes();
+        $nodes = $this->tron->listNodes();
 
         $this->assertIsArray($nodes);
         $this->assertEmpty($nodes);
     }
 
+    public function testListNodesVO(): void
+    {
+        $this->fullNodeProvider->setResponse('wallet/listnodes', [
+            'nodes' => [
+                ['address' => ['host' => '7f000001', 'port' => 8080]],
+                ['address' => ['host' => 'c0a80001', 'port' => 8090]],
+            ],
+        ]);
+
+        $nodes = $this->tron->listNodesVO();
+
+        $this->assertIsArray($nodes);
+        $this->assertCount(2, $nodes);
+        $this->assertContainsOnlyInstancesOf(NodeInfo::class, $nodes);
+
+        // Verify first node
+        $this->assertSame('7f000001', $nodes[0]->getHost());
+        $this->assertSame(8080, $nodes[0]->getPort());
+        $this->assertTrue($nodes[0]->isValid());
+
+        // Verify second node
+        $this->assertSame('c0a80001', $nodes[1]->getHost());
+        $this->assertSame(8090, $nodes[1]->getPort());
+        $this->assertTrue($nodes[1]->isValid());
+    }
+
+    public function testListNodesVOReturnsEmptyArrayWhenNoNodes(): void
+    {
+        $this->fullNodeProvider->setResponse('wallet/listnodes', []);
+
+        $nodes = $this->tron->listNodesVO();
+
+        $this->assertIsArray($nodes);
+        $this->assertEmpty($nodes);
+    }
+
+    public function testListNodesVOReturnsEmptyArrayWhenNodesFieldMissing(): void
+    {
+        $this->fullNodeProvider->setResponse('wallet/listnodes', ['status' => 'ok']);
+
+        $nodes = $this->tron->listNodesVO();
+
+        $this->assertIsArray($nodes);
+        $this->assertEmpty($nodes);
+    }
+
+    public function testListNodesVOFiltersInvalidNodes(): void
+    {
+        $this->fullNodeProvider->setResponse('wallet/listnodes', [
+            'nodes' => [
+                ['address' => ['host' => '7f000001', 'port' => 8080]], // Valid
+                ['address' => ['host' => '', 'port' => 8080]], // Invalid: empty host
+                ['address' => ['host' => 'c0a80001', 'port' => 0]], // Invalid: port is 0
+                ['address' => ['host' => 'c0a80002', 'port' => 9000]], // Valid
+                'invalid_node', // Invalid: not an array
+            ],
+        ]);
+
+        $nodes = $this->tron->listNodesVO();
+
+        // Should only return the 2 valid nodes
+        $this->assertIsArray($nodes);
+        $this->assertCount(2, $nodes);
+        $this->assertContainsOnlyInstancesOf(NodeInfo::class, $nodes);
+
+        // Verify first valid node
+        $this->assertSame('7f000001', $nodes[0]->getHost());
+        $this->assertSame(8080, $nodes[0]->getPort());
+
+        // Verify second valid node
+        $this->assertSame('c0a80002', $nodes[1]->getHost());
+        $this->assertSame(9000, $nodes[1]->getPort());
+    }
+
     public function testGetBlockRange(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/getblockbylimitnext', Assert::callback(function ($params) {
-                return 10 === $params['startNum'] && 21 === $params['endNum'];
-            }))
-            ->willReturn([
-                'block' => [
-                    ['blockID' => 'block10'],
-                    ['blockID' => 'block11'],
-                ],
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/getblockbylimitnext', [
+            'block' => [
+                ['blockID' => 'block10'],
+                ['blockID' => 'block11'],
+            ],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $blocks = $tron->getBlockRange(10, 20);
+        $blocks = $this->tron->getBlockRange(10, 20);
 
         $this->assertIsArray($blocks);
         $this->assertCount(2, $blocks);
+
+        // 验证请求参数
+        $lastRequest = $this->fullNodeProvider->getLastRequest();
+        $this->assertNotNull($lastRequest);
+        $this->assertSame(10, $lastRequest['payload']['startNum']);
+        $this->assertSame(21, $lastRequest['payload']['endNum']);
     }
 
     public function testGetBlockRangeThrowsExceptionForInvalidStart(): void
@@ -913,27 +813,22 @@ class TronTest extends TestCase
 
     public function testGetLatestBlocks(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/getblockbylatestnum', Assert::callback(function ($params) {
-                return 5 === $params['num'];
-            }))
-            ->willReturn([
-                'block' => [
-                    ['blockID' => 'latest1'],
-                    ['blockID' => 'latest2'],
-                ],
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/getblockbylatestnum', [
+            'block' => [
+                ['blockID' => 'latest1'],
+                ['blockID' => 'latest2'],
+            ],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $blocks = $tron->getLatestBlocks(5);
+        $blocks = $this->tron->getLatestBlocks(5);
 
         $this->assertIsArray($blocks);
         $this->assertCount(2, $blocks);
+
+        // 验证请求参数
+        $lastRequest = $this->fullNodeProvider->getLastRequest();
+        $this->assertNotNull($lastRequest);
+        $this->assertSame(5, $lastRequest['payload']['num']);
     }
 
     public function testGetLatestBlocksThrowsExceptionForInvalidLimit(): void
@@ -947,22 +842,14 @@ class TronTest extends TestCase
 
     public function testListSuperRepresentatives(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/listwitnesses')
-            ->willReturn([
-                'witnesses' => [
-                    ['address' => 'witness1'],
-                    ['address' => 'witness2'],
-                ],
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/listwitnesses', [
+            'witnesses' => [
+                ['address' => 'witness1'],
+                ['address' => 'witness2'],
+            ],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $witnesses = $tron->listSuperRepresentatives();
+        $witnesses = $this->tron->listSuperRepresentatives();
 
         $this->assertIsArray($witnesses);
         $this->assertCount(2, $witnesses);
@@ -970,22 +857,14 @@ class TronTest extends TestCase
 
     public function testListTokens(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/getassetissuelist')
-            ->willReturn([
-                'assetIssue' => [
-                    ['id' => 'token1'],
-                    ['id' => 'token2'],
-                ],
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/getassetissuelist', [
+            'assetIssue' => [
+                ['id' => 'token1'],
+                ['id' => 'token2'],
+            ],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $tokens = $tron->listTokens();
+        $tokens = $this->tron->listTokens();
 
         $this->assertIsArray($tokens);
         $this->assertCount(2, $tokens);
@@ -993,43 +872,31 @@ class TronTest extends TestCase
 
     public function testListTokensWithPagination(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/getpaginatedassetissuelist', Assert::callback(function ($params) {
-                return 10 === $params['limit'] && 5 === $params['offset'];
-            }))
-            ->willReturn([
-                'assetIssue' => [
-                    ['id' => 'token1'],
-                ],
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/getpaginatedassetissuelist', [
+            'assetIssue' => [
+                ['id' => 'token1'],
+            ],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $tokens = $tron->listTokens(10, 5);
+        $tokens = $this->tron->listTokens(10, 5);
 
         $this->assertIsArray($tokens);
         $this->assertCount(1, $tokens);
+
+        // 验证请求参数
+        $lastRequest = $this->fullNodeProvider->getLastRequest();
+        $this->assertNotNull($lastRequest);
+        $this->assertSame(10, $lastRequest['payload']['limit']);
+        $this->assertSame(5, $lastRequest['payload']['offset']);
     }
 
     public function testTimeUntilNextVoteCycle(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/getnextmaintenancetime')
-            ->willReturn([
-                'num' => 60000,
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/getnextmaintenancetime', [
+            'num' => 60000,
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $time = $tron->timeUntilNextVoteCycle();
+        $time = $this->tron->timeUntilNextVoteCycle();
 
         $this->assertSame(60.0, $time);
     }
@@ -1039,45 +906,34 @@ class TronTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Failed to get time until next vote cycle');
 
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/getnextmaintenancetime')
-            ->willReturn([
-                'num' => -1,
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/getnextmaintenancetime', [
+            'num' => -1,
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $tron->timeUntilNextVoteCycle();
+        $this->tron->timeUntilNextVoteCycle();
     }
 
     public function testGetTransactionsRelated(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('walletextension/gettransactionstothis', Assert::callback(function ($params) {
-                return isset($params['account']) && 30 === $params['limit'] && 0 === $params['offset'];
-            }))
-            ->willReturn([
-                'transactions' => [
-                    ['txID' => 'tx1'],
-                    ['txID' => 'tx2'],
-                ],
-            ])
-        ;
+        // walletextension 请求会路由到 solidityNode
+        $this->solidityNodeProvider->setResponse('walletextension/gettransactionstothis', [
+            'transactions' => [
+                ['txID' => 'tx1'],
+                ['txID' => 'tx2'],
+            ],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $result = $tron->getTransactionsRelated('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY', 'to', 30, 0);
+        $result = $this->tron->getTransactionsRelated('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY', 'to', 30, 0);
 
         $this->assertIsArray($result);
         $this->assertArrayHasKey('direction', $result);
         $this->assertSame('to', $result['direction']);
+
+        // 验证请求参数
+        $lastRequest = $this->solidityNodeProvider->getLastRequest();
+        $this->assertNotNull($lastRequest);
+        $this->assertSame(30, $lastRequest['payload']['limit']);
+        $this->assertSame(0, $lastRequest['payload']['offset']);
     }
 
     public function testGetTransactionsRelatedThrowsExceptionForInvalidDirection(): void
@@ -1091,19 +947,12 @@ class TronTest extends TestCase
 
     public function testGetTransactionsToAddress(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('walletextension/gettransactionstothis')
-            ->willReturn([
-                'transactions' => [],
-            ])
-        ;
+        // walletextension 请求会路由到 solidityNode
+        $this->solidityNodeProvider->setResponse('walletextension/gettransactionstothis', [
+            'transactions' => [],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $result = $tron->getTransactionsToAddress('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
+        $result = $this->tron->getTransactionsToAddress('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
 
         $this->assertIsArray($result);
         $this->assertArrayHasKey('direction', $result);
@@ -1112,19 +961,12 @@ class TronTest extends TestCase
 
     public function testGetTransactionsFromAddress(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('walletextension/gettransactionsfromthis')
-            ->willReturn([
-                'transactions' => [],
-            ])
-        ;
+        // walletextension 请求会路由到 solidityNode
+        $this->solidityNodeProvider->setResponse('walletextension/gettransactionsfromthis', [
+            'transactions' => [],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $result = $tron->getTransactionsFromAddress('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
+        $result = $this->tron->getTransactionsFromAddress('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
 
         $this->assertIsArray($result);
         $this->assertArrayHasKey('direction', $result);
@@ -1133,22 +975,12 @@ class TronTest extends TestCase
 
     public function testGetBandwidth(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/getaccountnet', Assert::callback(function ($params) {
-                return isset($params['address']);
-            }))
-            ->willReturn([
-                'freeNetUsed' => 100,
-                'freeNetLimit' => 5000,
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/getaccountnet', [
+            'freeNetUsed' => 100,
+            'freeNetLimit' => 5000,
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $bandwidth = $tron->getBandwidth('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
+        $bandwidth = $this->tron->getBandwidth('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
 
         $this->assertIsArray($bandwidth);
         $this->assertArrayHasKey('freeNetUsed', $bandwidth);
@@ -1157,50 +989,41 @@ class TronTest extends TestCase
 
     public function testGetTokenByID(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('/wallet/getassetissuebyid', Assert::callback(function ($params) {
-                return '1000001' === $params['value'];
-            }))
-            ->willReturn([
-                'id' => '1000001',
-                'name' => 'TestToken',
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('/wallet/getassetissuebyid', [
+            'id' => '1000001',
+            'name' => 'TestToken',
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $token = $tron->getTokenByID('1000001');
+        $token = $this->tron->getTokenByID('1000001');
 
         $this->assertIsArray($token);
         $this->assertArrayHasKey('id', $token);
         $this->assertArrayHasKey('name', $token);
+
+        // 验证请求参数
+        $lastRequest = $this->fullNodeProvider->getLastRequest();
+        $this->assertNotNull($lastRequest);
+        $this->assertSame('1000001', $lastRequest['payload']['value']);
     }
 
     public function testGetContract(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('/wallet/getcontract', Assert::callback(function ($params) {
-                return 'contract_address' === $params['value'] && true === $params['visible'];
-            }))
-            ->willReturn([
-                'bytecode' => 'contract_bytecode',
-                'name' => 'MyContract',
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('/wallet/getcontract', [
+            'bytecode' => 'contract_bytecode',
+            'name' => 'MyContract',
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $contract = $tron->getContract('contract_address');
+        $contract = $this->tron->getContract('contract_address');
 
         $this->assertIsArray($contract);
         $this->assertArrayHasKey('bytecode', $contract);
         $this->assertArrayHasKey('name', $contract);
+
+        // 验证请求参数
+        $lastRequest = $this->fullNodeProvider->getLastRequest();
+        $this->assertNotNull($lastRequest);
+        $this->assertSame('contract_address', $lastRequest['payload']['value']);
+        $this->assertTrue($lastRequest['payload']['visible']);
     }
 
     public function testToUtf8(): void
@@ -1238,20 +1061,10 @@ class TronTest extends TestCase
 
     public function testIsConnected(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('isConnected')
-            ->willReturn([
-                'fullNode' => true,
-                'solidityNode' => true,
-                'eventServer' => false,
-            ])
-        ;
+        // 设置 provider 连接状态
+        $this->fullNodeProvider->setConnected(true);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $status = $tron->isConnected();
+        $status = $this->tron->isConnected();
 
         $this->assertIsArray($status);
         $this->assertArrayHasKey('fullNode', $status);
@@ -1380,425 +1193,311 @@ class TronTest extends TestCase
 
     public function testSendTrx(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->atLeastOnce())
-            ->method('request')
-            ->willReturn([
+        $this->fullNodeProvider
+            ->setResponse('wallet/createtransaction', [
                 'result' => true,
                 'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
                 'raw_data' => ['contract' => []],
-                'txid' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
             ])
-        ;
+            ->setResponse('wallet/broadcasttransaction', [
+                'result' => true,
+                'txid' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+            ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-        $tron->setAddress('TLPbUv85wRUjCfHsCfy74m8Rd5RLV8');
-        $tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
+        $this->tron->setAddress('TLPbUv85wRUjCfHsCfy74m8Rd5RLV8');
+        $this->tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
 
-        $result = $tron->sendTrx('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY', 1.0);
+        $result = $this->tron->sendTrx('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY', 1.0);
 
         $this->assertIsArray($result);
     }
 
     public function testSendToken(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->exactly(2))
-            ->method('request')
-            ->willReturnOnConsecutiveCalls(
-                [
-                    'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                    'raw_data' => ['contract' => []],
-                ],
-                [
-                    'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                    'raw_data' => ['contract' => []],
-                ]
-            );
+        $this->fullNodeProvider
+            ->setResponse('wallet/transferasset', [
+                'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+                'raw_data' => ['contract' => []],
+            ])
+            ->setResponse('wallet/broadcasttransaction', [
+                'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+                'raw_data' => ['contract' => []],
+            ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-        $tron->setAddress('TLPbUv85wRUjCfHsCfy74m8Rd5RLV8');
-        $tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
+        $this->tron->setAddress('TLPbUv85wRUjCfHsCfy74m8Rd5RLV8');
+        $this->tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
 
-        $result = $tron->sendToken('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY', 100, '1000001');
+        $result = $this->tron->sendToken('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY', 100, '1000001');
 
         $this->assertIsArray($result);
     }
 
     public function testFreezeBalance(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->exactly(2))
-            ->method('request')
-            ->willReturnOnConsecutiveCalls(
-                // First call: wallet/freezebalance
-                [
-                    'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                    'raw_data' => ['contract' => []],
-                ],
-                // Second call: wallet/broadcasttransaction
-                [
-                    'result' => true,
-                    'txid' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                ]
-            )
-        ;
+        $this->fullNodeProvider
+            ->setResponse('wallet/freezebalance', [
+                'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+                'raw_data' => ['contract' => []],
+            ])
+            ->setResponse('wallet/broadcasttransaction', [
+                'result' => true,
+                'txid' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+            ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-        $tron->setAddress('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
-        $tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
+        $this->tron->setAddress('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
+        $this->tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
 
-        $result = $tron->freezeBalance(1000000, 3, 'BANDWIDTH');
+        $result = $this->tron->freezeBalance(1000000, 3, 'BANDWIDTH');
 
         $this->assertIsArray($result);
     }
 
     public function testUnfreezeBalance(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->exactly(2))
-            ->method('request')
-            ->willReturnOnConsecutiveCalls(
-                [
-                    'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                    'raw_data' => ['contract' => []],
-                ],
-                [
-                    'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                    'raw_data' => ['contract' => []],
-                ]
-            )
-        ;
+        $this->fullNodeProvider
+            ->setResponse('wallet/unfreezebalance', [
+                'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+                'raw_data' => ['contract' => []],
+            ])
+            ->setResponse('wallet/broadcasttransaction', [
+                'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+                'raw_data' => ['contract' => []],
+            ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-        $tron->setAddress('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
-        $tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
+        $this->tron->setAddress('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
+        $this->tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
 
-        $result = $tron->unfreezeBalance('BANDWIDTH');
+        $result = $this->tron->unfreezeBalance('BANDWIDTH');
 
         $this->assertIsArray($result);
     }
 
     public function testValidateAddressVO(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->willReturn([
-                'result' => true,
-                'message' => 'Valid address',
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/validateaddress', [
+            'result' => true,
+            'message' => 'Valid address',
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-
-        $result = $tron->validateAddressVO('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
+        $result = $this->tron->validateAddressVO('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
 
         $this->assertInstanceOf(AddressValidation::class, $result);
     }
 
     public function testRegisterAccount(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->willReturn([
-                'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                'raw_data' => ['contract' => []],
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/createaccount', [
+            'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+            'raw_data' => ['contract' => []],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-        $tron->setAddress('TLPbUv85wRUjCfHsCfy74m8Rd5RLV8');
-        $tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
+        $this->tron->setAddress('TLPbUv85wRUjCfHsCfy74m8Rd5RLV8');
+        $this->tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
 
-        $result = $tron->registerAccount('TLPbUv85wRUjCfHsCfy74m8Rd5RLV8', 'TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
+        $result = $this->tron->registerAccount('TLPbUv85wRUjCfHsCfy74m8Rd5RLV8', 'TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
 
         $this->assertIsArray($result);
     }
 
     public function testRegisterAccountVO(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->willReturn([
-                'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                'raw_data' => ['contract' => []],
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/createaccount', [
+            'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+            'raw_data' => ['contract' => []],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-        $tron->setAddress('TLPbUv85wRUjCfHsCfy74m8Rd5RLV8');
-        $tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
+        $this->tron->setAddress('TLPbUv85wRUjCfHsCfy74m8Rd5RLV8');
+        $this->tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
 
-        $result = $tron->registerAccountVO('TLPbUv85wRUjCfHsCfy74m8Rd5RLV8', 'TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
+        $result = $this->tron->registerAccountVO('TLPbUv85wRUjCfHsCfy74m8Rd5RLV8', 'TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
 
         $this->assertInstanceOf(TransactionInfo::class, $result);
     }
 
     public function testApplyForSuperRepresentative(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->willReturn([
-                'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                'raw_data' => ['contract' => []],
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/createwitness', [
+            'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+            'raw_data' => ['contract' => []],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-        $tron->setAddress('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
-        $tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
+        $this->tron->setAddress('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
+        $this->tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
 
-        $result = $tron->applyForSuperRepresentative('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY', 'https://example.com');
+        $result = $this->tron->applyForSuperRepresentative('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY', 'https://example.com');
 
         $this->assertIsArray($result);
     }
 
     public function testApplyForSuperRepresentativeVO(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->willReturn([
-                'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                'raw_data' => ['contract' => []],
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/createwitness', [
+            'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+            'raw_data' => ['contract' => []],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-        $tron->setAddress('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
-        $tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
+        $this->tron->setAddress('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
+        $this->tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
 
-        $result = $tron->applyForSuperRepresentativeVO('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY', 'https://example.com');
+        $result = $this->tron->applyForSuperRepresentativeVO('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY', 'https://example.com');
 
         $this->assertInstanceOf(TransactionInfo::class, $result);
     }
 
     public function testCreateToken(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->willReturn([
-                'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                'raw_data' => ['contract' => []],
-            ])
-        ;
+        $this->fullNodeProvider->setResponse('wallet/createassetissue', [
+            'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+            'raw_data' => ['contract' => []],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-        $tron->setAddress('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
-        $tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
+        $this->tron->setAddress('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
+        $this->tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
 
         $options = [
             'name' => 'Test Token',
             'abbreviation' => 'TTK',
             'totalSupply' => 1000000,
         ];
-        $result = $tron->createToken($options);
+        $result = $this->tron->createToken($options);
 
         $this->assertIsArray($result);
     }
 
     public function testUpdateToken(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->exactly(2))
-            ->method('request')
-            ->willReturnOnConsecutiveCalls(
-                // First call: wallet/updateasset
-                [
-                    'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                    'raw_data' => ['contract' => []],
-                ],
-                // Second call: wallet/broadcasttransaction
-                [
-                    'result' => true,
-                    'txid' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                ]
-            )
-        ;
+        $this->fullNodeProvider
+            ->setResponse('wallet/updateasset', [
+                'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+                'raw_data' => ['contract' => []],
+            ])
+            ->setResponse('wallet/broadcasttransaction', [
+                'result' => true,
+                'txid' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+            ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-        $tron->setAddress('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
-        $tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
+        $this->tron->setAddress('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
+        $this->tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
 
-        $result = $tron->updateToken('https://new-url.com', 'Updated description', 1000, 5000);
+        $result = $this->tron->updateToken('https://new-url.com', 'Updated description', 1000, 5000);
 
         $this->assertIsArray($result);
     }
 
     public function testSendTransaction(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->exactly(2))
-            ->method('request')
-            ->willReturnOnConsecutiveCalls(
-                // First call: wallet/createtransaction
-                [
-                    'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                    'raw_data' => ['contract' => []],
-                ],
-                // Second call: wallet/broadcasttransaction
-                [
-                    'result' => true,
-                    'txid' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                ]
-            )
-        ;
+        $this->fullNodeProvider
+            ->setResponse('wallet/createtransaction', [
+                'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+                'raw_data' => ['contract' => []],
+            ])
+            ->setResponse('wallet/broadcasttransaction', [
+                'result' => true,
+                'txid' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+            ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-        $tron->setAddress('TLPbUv85wRUjCfHsCfy74m8Rd5RLV8');
-        $tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
+        $this->tron->setAddress('TLPbUv85wRUjCfHsCfy74m8Rd5RLV8');
+        $this->tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
 
-        $result = $tron->sendTransaction('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY', 1.0);
+        $result = $this->tron->sendTransaction('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY', 1.0);
 
         $this->assertIsArray($result);
     }
 
     public function testSendTransactionVO(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->exactly(2))
-            ->method('request')
-            ->willReturnOnConsecutiveCalls(
-                // First call: wallet/createtransaction
-                [
-                    'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                    'raw_data' => ['contract' => []],
-                ],
-                // Second call: wallet/broadcasttransaction
-                [
-                    'result' => true,
-                    'txid' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                ]
-            )
-        ;
+        $this->fullNodeProvider
+            ->setResponse('wallet/createtransaction', [
+                'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+                'raw_data' => ['contract' => []],
+            ])
+            ->setResponse('wallet/broadcasttransaction', [
+                'result' => true,
+                'txid' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+            ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-        $tron->setAddress('TLPbUv85wRUjCfHsCfy74m8Rd5RLV8');
-        $tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
+        $this->tron->setAddress('TLPbUv85wRUjCfHsCfy74m8Rd5RLV8');
+        $this->tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
 
-        $result = $tron->sendTransactionVO('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY', 1.0);
+        $result = $this->tron->sendTransactionVO('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY', 1.0);
 
         $this->assertInstanceOf(TransactionInfo::class, $result);
     }
 
     public function testSendTokenTransaction(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->exactly(2))
-            ->method('request')
-            ->willReturnOnConsecutiveCalls(
-                // First call: wallet/transferasset
-                [
-                    'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                    'raw_data' => ['contract' => []],
-                ],
-                // Second call: wallet/broadcasttransaction
-                [
-                    'result' => true,
-                    'txid' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                ]
-            )
-        ;
+        $this->fullNodeProvider
+            ->setResponse('wallet/transferasset', [
+                'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+                'raw_data' => ['contract' => []],
+            ])
+            ->setResponse('wallet/broadcasttransaction', [
+                'result' => true,
+                'txid' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+            ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-        $tron->setAddress('TLPbUv85wRUjCfHsCfy74m8Rd5RLV8');
-        $tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
+        $this->tron->setAddress('TLPbUv85wRUjCfHsCfy74m8Rd5RLV8');
+        $this->tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
 
-        $result = $tron->sendTokenTransaction('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY', 100, '1000001');
+        $result = $this->tron->sendTokenTransaction('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY', 100, '1000001');
 
         $this->assertIsArray($result);
     }
 
     public function testPurchaseToken(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->exactly(2))
-            ->method('request')
-            ->willReturnOnConsecutiveCalls(
-                [
-                    'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                    'raw_data' => ['contract' => []],
-                ],
-                [
-                    'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                    'raw_data' => ['contract' => []],
-                ]
-            );
+        $this->fullNodeProvider
+            ->setResponse('wallet/participateassetissue', [
+                'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+                'raw_data' => ['contract' => []],
+            ])
+            ->setResponse('wallet/broadcasttransaction', [
+                'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+                'raw_data' => ['contract' => []],
+            ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-        $tron->setAddress('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
-        $tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
+        $this->tron->setAddress('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
+        $this->tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
 
-        $result = $tron->purchaseToken('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY', '1000001', 100);
+        $result = $this->tron->purchaseToken('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY', '1000001', 100);
 
         $this->assertIsArray($result);
     }
 
     public function testSendOneToMany(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->exactly(2))
-            ->method('request')
-            ->willReturnOnConsecutiveCalls(
-                [
-                    'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                    'raw_data' => ['contract' => []],
-                ],
-                [
-                    'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                    'raw_data' => ['contract' => []],
-                ]
-            );
+        $this->fullNodeProvider
+            ->setResponse('wallet/createtransaction', [
+                'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+                'raw_data' => ['contract' => []],
+            ])
+            ->setResponse('wallet/broadcasttransaction', [
+                'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+                'raw_data' => ['contract' => []],
+            ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-        $tron->setAddress('TLPbUv85wRUjCfHsCfy74m8Rd5RLV8');
-        $tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
+        $this->tron->setAddress('TLPbUv85wRUjCfHsCfy74m8Rd5RLV8');
+        $this->tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
 
         $recipients = [
             [0 => 'TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY', 1 => 1000000],
         ];
-        $result = $tron->sendOneToMany($recipients);
+        $result = $this->tron->sendOneToMany($recipients);
 
         $this->assertIsArray($result);
     }
 
     public function testDeployContract(): void
     {
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->willReturn([
-                'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
-                'raw_data' => ['contract' => []],
-            ]);
+        $this->fullNodeProvider->setResponse('wallet/deploycontract', [
+            'txID' => 'abc123def456abc123def456abc123def456abc123def456abc123def456abc1',
+            'raw_data' => ['contract' => []],
+        ]);
 
-        $tron = new Tron();
-        $tron->setManager($mockManager);
-        $tron->setAddress('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
-        $tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
+        $this->tron->setAddress('TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
+        $this->tron->setPrivateKey('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef');
 
-        $result = $tron->deployContract('[]', '6080', 1000000000, 'TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
+        $result = $this->tron->deployContract('[]', '6080', 1000000000, 'TPL66VK2gCXNCD7EJg9pgJRfqcRazjhUZY');
 
         $this->assertIsArray($result);
     }

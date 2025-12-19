@@ -115,64 +115,55 @@ class EncodingServiceTest extends TestCase
         $this->assertSame('', $result);
     }
 
-    // toTron() tests
-    public function testToTronConvertsAmountCorrectly(): void
+    // trxToSun() tests - 将 TRX 转换为 SUN（类型安全 API）
+    public function testTrxToSunConvertsAmountCorrectly(): void
     {
-        $amount = 1.0;
-        $result = $this->encodingService->toTron($amount);
+        $result = $this->encodingService->trxToSun('1');
 
-        $this->assertIsInt($result);
-        $this->assertSame(1000000, $result);
+        $this->assertSame('1000000', $result->getSun());
     }
 
-    public function testToTronWithDecimalAmount(): void
+    public function testTrxToSunWithDecimalAmount(): void
     {
-        $amount = 1.5;
-        $result = $this->encodingService->toTron($amount);
+        $result = $this->encodingService->trxToSun('1.5');
 
-        $this->assertSame(1500000, $result);
+        $this->assertSame('1500000', $result->getSun());
     }
 
-    public function testToTronWithZeroAmount(): void
+    public function testTrxToSunWithZeroAmount(): void
     {
-        $amount = 0.0;
-        $result = $this->encodingService->toTron($amount);
+        $result = $this->encodingService->trxToSun('0');
 
-        $this->assertSame(0, $result);
+        $this->assertSame('0', $result->getSun());
     }
 
-    public function testToTronWithLargeAmount(): void
+    public function testTrxToSunWithLargeAmount(): void
     {
-        $amount = 1000.0;
-        $result = $this->encodingService->toTron($amount);
+        $result = $this->encodingService->trxToSun('1000');
 
-        $this->assertSame(1000000000, $result);
+        $this->assertSame('1000000000', $result->getSun());
     }
 
-    // fromTron() tests
-    public function testFromTronConvertsAmountCorrectly(): void
+    // sunToTrx() tests - 将 SUN 转换为 TRX（类型安全 API）
+    public function testSunToTrxConvertsAmountCorrectly(): void
     {
-        $amount = 1000000;
-        $result = $this->encodingService->fromTron($amount);
+        $result = $this->encodingService->sunToTrx('1000000');
 
-        $this->assertIsFloat($result);
-        $this->assertSame(1.0, $result);
+        $this->assertSame('1.000000', $result->getTrx());
     }
 
-    public function testFromTronWithZeroAmount(): void
+    public function testSunToTrxWithZeroAmount(): void
     {
-        $amount = 0;
-        $result = $this->encodingService->fromTron($amount);
+        $result = $this->encodingService->sunToTrx('0');
 
-        $this->assertSame(0.0, $result);
+        $this->assertSame('0.000000', $result->getTrx());
     }
 
-    public function testFromTronWithLargeAmount(): void
+    public function testSunToTrxWithLargeAmount(): void
     {
-        $amount = 1000000000;
-        $result = $this->encodingService->fromTron($amount);
+        $result = $this->encodingService->sunToTrx('1000000000');
 
-        $this->assertSame(1000.0, $result);
+        $this->assertSame('1000.000000', $result->getTrx());
     }
 
     // address2HexString() tests
@@ -239,22 +230,22 @@ class EncodingServiceTest extends TestCase
         $this->assertSame($original, $decoded);
     }
 
-    public function testToTronAndFromTronRoundTrip(): void
+    public function testTrxToSunAndSunToTrxRoundTrip(): void
     {
-        $original = 100.0;
-        $tron = $this->encodingService->toTron($original);
-        $decoded = $this->encodingService->fromTron($tron);
+        $original = '100';
+        $sun = $this->encodingService->trxToSun($original);
+        $trxAmount = $this->encodingService->sunToTrx($sun->getSun());
 
-        $this->assertSame($original, $decoded);
+        $this->assertSame('100.000000', $trxAmount->getTrx());
     }
 
-    public function testToTronAndFromTronRoundTripWithDecimals(): void
+    public function testTrxToSunAndSunToTrxRoundTripWithDecimals(): void
     {
-        $original = 123.456789;
-        $tron = $this->encodingService->toTron($original);
-        $decoded = $this->encodingService->fromTron($tron);
+        $original = '123.456789';
+        $sun = $this->encodingService->trxToSun($original);
+        $trxAmount = $this->encodingService->sunToTrx($sun->getSun());
 
-        // Note: Due to precision, we compare with delta
-        $this->assertEqualsWithDelta($original, $decoded, 0.000001);
+        // TronAmount 保留 6 位小数精度
+        $this->assertSame('123.456789', $trxAmount->getTrx());
     }
 }

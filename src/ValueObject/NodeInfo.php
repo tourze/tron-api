@@ -43,34 +43,78 @@ class NodeInfo
      */
     public static function fromArray(array $data): self
     {
-        $host = '';
-        $port = 0;
-
-        if (isset($data['address']) && is_array($data['address'])) {
-            $addressData = $data['address'];
-
-            if (isset($addressData['host'])) {
-                $hostValue = $addressData['host'];
-                if (is_string($hostValue)) {
-                    $host = $hostValue;
-                } elseif (is_scalar($hostValue)) {
-                    $host = (string) $hostValue;
-                }
-            }
-
-            if (isset($addressData['port'])) {
-                $portValue = $addressData['port'];
-                if (is_int($portValue)) {
-                    $port = $portValue;
-                } elseif (is_numeric($portValue)) {
-                    $port = (int) $portValue;
-                }
-            }
+        $addressData = $data['address'] ?? null;
+        if (!is_array($addressData)) {
+            $addressData = [];
         }
 
-        $address = '' !== $host && $port > 0 ? "{$host}:{$port}" : '';
+        $host = self::extractHost($addressData);
+        $port = self::extractPort($addressData);
+        $address = self::buildAddress($host, $port);
 
         return new self($host, $port, $address);
+    }
+
+    /**
+     * 从地址数据中提取 host
+     *
+     * @param array<string, mixed> $addressData
+     */
+    private static function extractHost(array $addressData): string
+    {
+        if (!isset($addressData['host'])) {
+            return '';
+        }
+
+        /** @var mixed $hostValue */
+        $hostValue = $addressData['host'];
+
+        if (is_string($hostValue)) {
+            return $hostValue;
+        }
+
+        if (is_scalar($hostValue)) {
+            return (string) $hostValue;
+        }
+
+        return '';
+    }
+
+    /**
+     * 从地址数据中提取 port
+     *
+     * @param array<string, mixed> $addressData
+     */
+    private static function extractPort(array $addressData): int
+    {
+        if (!isset($addressData['port'])) {
+            return 0;
+        }
+
+        /** @var mixed $portValue */
+        $portValue = $addressData['port'];
+
+        if (is_int($portValue)) {
+            return $portValue;
+        }
+
+        if (is_numeric($portValue)) {
+            return (int) $portValue;
+        }
+
+        return 0;
+    }
+
+    /**
+     * 构建完整地址字符串
+     */
+    private static function buildAddress(string $host, int $port): string
+    {
+        if ('' !== $host && $port > 0) {
+            return "{$host}:{$port}";
+        }
+
+        return '';
     }
 
     /**

@@ -193,7 +193,6 @@ class BlockchainQueryService
 
         if (is_string($value) && is_numeric($value)) {
             // 如果包含小数点，返回 float，否则返回 int
-            /** @var string $value */
             if (str_contains($value, '.')) {
                 return (float) $value;
             }

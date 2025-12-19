@@ -7,6 +7,7 @@ namespace Tourze\TronAPI\Tests\Service;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Tourze\TronAPI\Exception\InvalidArgumentException;
+use Tourze\TronAPI\Provider\InMemoryHttpProvider;
 use Tourze\TronAPI\Service\TokenService;
 use Tourze\TronAPI\Tron;
 use Tourze\TronAPI\TronManager;
@@ -17,14 +18,29 @@ use Tourze\TronAPI\TronManager;
 #[CoversClass(TokenService::class)]
 class TokenServiceTest extends TestCase
 {
-    private function createMockTron(): Tron
-    {
-        return $this->createMock(Tron::class);
-    }
+    private InMemoryHttpProvider $fullNodeProvider;
 
-    private function createMockManager(): TronManager
+    private Tron $tron;
+
+    private TokenService $service;
+
+    protected function setUp(): void
     {
-        return $this->createMock(TronManager::class);
+        $this->fullNodeProvider = new InMemoryHttpProvider();
+
+        $manager = new TronManager([
+            'fullNode' => $this->fullNodeProvider,
+            'solidityNode' => new InMemoryHttpProvider(),
+            'eventServer' => new InMemoryHttpProvider(),
+            'explorer' => new InMemoryHttpProvider(),
+        ]);
+
+        $this->tron = new Tron();
+        // 使用反射设置 manager
+        $reflection = new \ReflectionProperty(Tron::class, 'manager');
+        $reflection->setValue($this->tron, $manager);
+
+        $this->service = new TokenService($this->tron);
     }
 
     public function testCanBeInstantiated(): void
@@ -41,10 +57,7 @@ class TokenServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Invalid amount provided');
 
-        $mockTron = $this->createMockTron();
-        $service = new TokenService($mockTron);
-
-        $service->purchaseToken('TIssuerAddress', 'token123', 0, 'TBuyerAddress');
+        $this->service->purchaseToken('TIssuerAddress', 'token123', 0, 'TBuyerAddress');
     }
 
     public function testPurchaseTokenThrowsExceptionForNegativeAmount(): void
@@ -52,10 +65,7 @@ class TokenServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Invalid amount provided');
 
-        $mockTron = $this->createMockTron();
-        $service = new TokenService($mockTron);
-
-        $service->purchaseToken('TIssuerAddress', 'token123', -100, 'TBuyerAddress');
+        $this->service->purchaseToken('TIssuerAddress', 'token123', -100, 'TBuyerAddress');
     }
 
     public function testPurchaseTokenThrowsExceptionWhenResponseContainsError(): void
@@ -63,76 +73,34 @@ class TokenServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Insufficient balance');
 
-        $mockManager = $this->createMockManager();
-        $mockTron = $this->createMockTron();
+        $this->fullNodeProvider->setResponse('wallet/participateassetissue', [
+            'Error' => 'Insufficient balance',
+        ]);
 
-        $mockTron->expects($this->once())
-            ->method('getManager')
-            ->willReturn($mockManager)
-        ;
-
-        $mockTron->method('address2HexString')
-            ->willReturnCallback(fn ($addr) => '41' . strtolower($addr))
-        ;
-
-        $mockTron->expects($this->once())
-            ->method('stringUtf8toHex')
-            ->with('token123')
-            ->willReturn('746f6b656e313233')
-        ;
-
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->willReturn(['Error' => 'Insufficient balance'])
-        ;
-
-        $service = new TokenService($mockTron);
-        $service->purchaseToken('TIssuerAddress', 'token123', 1000, 'TBuyerAddress');
+        $this->service->purchaseToken('TIssuerAddress', 'token123', 1000, 'TBuyerAddress');
     }
 
     public function testPurchaseTokenReturnsSuccessResponse(): void
     {
-        $mockManager = $this->createMockManager();
-        $mockTron = $this->createMockTron();
-
-        $mockTron->expects($this->once())
-            ->method('getManager')
-            ->willReturn($mockManager)
-        ;
-
-        $mockTron->method('address2HexString')
-            ->willReturnCallback(fn ($addr) => '41' . $addr)
-        ;
-
-        $mockTron->method('stringUtf8toHex')
-            ->willReturn('746f6b656e313233')
-        ;
-
-        $mockTron->method('toTron')
-            ->willReturn(1000000)
-        ;
-
         $expectedResponse = [
             'txID' => 'abc123',
             'result' => true,
         ];
 
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with(
-                'wallet/participateassetissue',
-                self::callback(function ($params) {
-                    return isset($params['to_address'])
-                        && isset($params['owner_address'], $params['asset_name'], $params['amount']);
-                })
-            )
-            ->willReturn($expectedResponse)
-        ;
+        $this->fullNodeProvider->setResponse('wallet/participateassetissue', $expectedResponse);
 
-        $service = new TokenService($mockTron);
-        $result = $service->purchaseToken('TIssuerAddress', 'token123', 1000, 'TBuyerAddress');
+        $result = $this->service->purchaseToken('TIssuerAddress', 'token123', 1000, 'TBuyerAddress');
 
         $this->assertSame($expectedResponse, $result);
+
+        // 验证请求参数
+        $lastRequest = $this->fullNodeProvider->getLastRequest();
+        $this->assertNotNull($lastRequest);
+        $this->assertSame('wallet/participateassetissue', $lastRequest['url']);
+        $this->assertArrayHasKey('to_address', $lastRequest['payload']);
+        $this->assertArrayHasKey('owner_address', $lastRequest['payload']);
+        $this->assertArrayHasKey('asset_name', $lastRequest['payload']);
+        $this->assertArrayHasKey('amount', $lastRequest['payload']);
     }
 
     // ===================== createToken 测试 =====================
@@ -141,9 +109,6 @@ class TokenServiceTest extends TestCase
     {
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Invalid token name provided');
-
-        $mockTron = $this->createMockTron();
-        $service = new TokenService($mockTron);
 
         $futureTimestamp = (time() + 3600) * 1000;
         $options = [
@@ -156,16 +121,13 @@ class TokenServiceTest extends TestCase
             'saleEnd' => $futureTimestamp + 86400000,
         ];
 
-        $service->createToken($options);
+        $this->service->createToken($options);
     }
 
     public function testCreateTokenThrowsExceptionForInvalidAbbreviation(): void
     {
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Invalid token abbreviation provided');
-
-        $mockTron = $this->createMockTron();
-        $service = new TokenService($mockTron);
 
         $futureTimestamp = (time() + 3600) * 1000;
         $options = [
@@ -178,16 +140,13 @@ class TokenServiceTest extends TestCase
             'saleEnd' => $futureTimestamp + 86400000,
         ];
 
-        $service->createToken($options);
+        $this->service->createToken($options);
     }
 
     public function testCreateTokenThrowsExceptionForInvalidSupply(): void
     {
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Invalid supply amount provided');
-
-        $mockTron = $this->createMockTron();
-        $service = new TokenService($mockTron);
 
         $futureTimestamp = (time() + 3600) * 1000;
         $options = [
@@ -200,16 +159,13 @@ class TokenServiceTest extends TestCase
             'saleEnd' => $futureTimestamp + 86400000,
         ];
 
-        $service->createToken($options);
+        $this->service->createToken($options);
     }
 
     public function testCreateTokenThrowsExceptionForInvalidUrl(): void
     {
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Invalid token url provided');
-
-        $mockTron = $this->createMockTron();
-        $service = new TokenService($mockTron);
 
         $futureTimestamp = (time() + 3600) * 1000;
         $options = [
@@ -222,16 +178,13 @@ class TokenServiceTest extends TestCase
             'saleEnd' => $futureTimestamp + 86400000,
         ];
 
-        $service->createToken($options);
+        $this->service->createToken($options);
     }
 
     public function testCreateTokenThrowsExceptionWhenSaleEndBeforeSaleStart(): void
     {
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Invalid sale end timestamp provided');
-
-        $mockTron = $this->createMockTron();
-        $service = new TokenService($mockTron);
 
         $futureTimestamp = (time() + 3600) * 1000;
         $options = [
@@ -244,16 +197,13 @@ class TokenServiceTest extends TestCase
             'saleEnd' => $futureTimestamp, // Invalid: end before start
         ];
 
-        $service->createToken($options);
+        $this->service->createToken($options);
     }
 
     public function testCreateTokenThrowsExceptionWhenSaleStartIsInPast(): void
     {
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Invalid sale start timestamp provided');
-
-        $mockTron = $this->createMockTron();
-        $service = new TokenService($mockTron);
 
         $pastTimestamp = (time() - 3600) * 1000;
         $options = [
@@ -266,38 +216,14 @@ class TokenServiceTest extends TestCase
             'saleEnd' => $pastTimestamp + 86400000,
         ];
 
-        $service->createToken($options);
+        $this->service->createToken($options);
     }
 
     public function testCreateTokenUsesDefaultIssuerAddress(): void
     {
-        $mockManager = $this->createMockManager();
-        $mockTron = $this->createMockTron();
+        $this->tron->address = ['hex' => '41defaultaddress'];
 
-        $mockTron->address = ['hex' => '41defaultaddress'];
-
-        $mockTron->expects($this->once())
-            ->method('getManager')
-            ->willReturn($mockManager)
-        ;
-
-        $mockTron->method('address2HexString')
-            ->willReturn('41defaultaddress')
-        ;
-
-        $mockTron->method('stringUtf8toHex')
-            ->willReturnCallback(fn ($str) => bin2hex($str))
-        ;
-
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with('wallet/createassetissue', self::callback(function ($data) {
-                return '41defaultaddress' === $data['owner_address'];
-            }))
-            ->willReturn(['txID' => 'abc123'])
-        ;
-
-        $service = new TokenService($mockTron);
+        $this->fullNodeProvider->setResponse('wallet/createassetissue', ['txID' => 'abc123']);
 
         $futureTimestamp = (time() + 3600) * 1000;
         $options = [
@@ -310,7 +236,16 @@ class TokenServiceTest extends TestCase
             'saleEnd' => $futureTimestamp + 86400000,
         ];
 
-        $service->createToken($options);
+        $this->service->createToken($options);
+
+        // 验证请求参数
+        $lastRequest = $this->fullNodeProvider->getLastRequest();
+        $this->assertNotNull($lastRequest);
+        $this->assertSame('wallet/createassetissue', $lastRequest['url']);
+        $this->assertArrayHasKey('owner_address', $lastRequest['payload']);
+        // 验证使用了默认地址（通过 address2HexString 转换）
+        $expectedAddress = $this->tron->address2HexString($this->tron->address['hex']);
+        $this->assertSame($expectedAddress, $lastRequest['payload']['owner_address']);
     }
 
     // ===================== updateToken 测试 =====================
@@ -320,10 +255,7 @@ class TokenServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Owner Address not specified');
 
-        $mockTron = $this->createMockTron();
-        $service = new TokenService($mockTron);
-
-        $service->updateToken('New description', 'https://example.com', 0, 0, null);
+        $this->service->updateToken('New description', 'https://example.com', 0, 0, null);
     }
 
     public function testUpdateTokenThrowsExceptionForNegativeFreeBandwidth(): void
@@ -331,10 +263,7 @@ class TokenServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Invalid free bandwidth amount provided');
 
-        $mockTron = $this->createMockTron();
-        $service = new TokenService($mockTron);
-
-        $service->updateToken('New description', 'https://example.com', -100, 0, 'TOwnerAddress');
+        $this->service->updateToken('New description', 'https://example.com', -100, 0, 'TOwnerAddress');
     }
 
     public function testUpdateTokenThrowsExceptionForNegativeFreeBandwidthLimit(): void
@@ -342,49 +271,19 @@ class TokenServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Invalid free bandwidth limit provided');
 
-        $mockTron = $this->createMockTron();
-        $service = new TokenService($mockTron);
-
-        $service->updateToken('New description', 'https://example.com', 0, -100, 'TOwnerAddress');
+        $this->service->updateToken('New description', 'https://example.com', 0, -100, 'TOwnerAddress');
     }
 
     public function testUpdateTokenReturnsSuccessResponse(): void
     {
-        $mockManager = $this->createMockManager();
-        $mockTron = $this->createMockTron();
-
-        $mockTron->expects($this->once())
-            ->method('getManager')
-            ->willReturn($mockManager)
-        ;
-
-        $mockTron->method('address2HexString')
-            ->willReturn('41owneraddress')
-        ;
-
-        $mockTron->method('stringUtf8toHex')
-            ->willReturnCallback(fn ($str) => bin2hex($str))
-        ;
-
         $expectedResponse = [
             'txID' => 'update123',
             'result' => true,
         ];
 
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with(
-                'wallet/updateasset',
-                self::callback(function ($params) {
-                    return isset($params['owner_address'])
-                        && isset($params['description'], $params['url'], $params['new_limit'], $params['new_public_limit']);
-                })
-            )
-            ->willReturn($expectedResponse)
-        ;
+        $this->fullNodeProvider->setResponse('wallet/updateasset', $expectedResponse);
 
-        $service = new TokenService($mockTron);
-        $result = $service->updateToken(
+        $result = $this->service->updateToken(
             'Updated description',
             'https://updated.com',
             1000,
@@ -393,21 +292,28 @@ class TokenServiceTest extends TestCase
         );
 
         $this->assertSame($expectedResponse, $result);
+
+        // 验证请求参数
+        $lastRequest = $this->fullNodeProvider->getLastRequest();
+        $this->assertNotNull($lastRequest);
+        $this->assertSame('wallet/updateasset', $lastRequest['url']);
+        $this->assertArrayHasKey('owner_address', $lastRequest['payload']);
+        $this->assertArrayHasKey('description', $lastRequest['payload']);
+        $this->assertArrayHasKey('url', $lastRequest['payload']);
+        $this->assertArrayHasKey('new_limit', $lastRequest['payload']);
+        $this->assertArrayHasKey('new_public_limit', $lastRequest['payload']);
     }
 
     // ===================== Private Methods 测试（通过反射） =====================
 
     public function testNormalizeTokenOptionsAddsDefaultValues(): void
     {
-        $mockTron = $this->createMockTron();
-        $service = new TokenService($mockTron);
-
-        $reflection = new \ReflectionClass($service);
+        $reflection = new \ReflectionClass($this->service);
         $method = $reflection->getMethod('normalizeTokenOptions');
         $method->setAccessible(true);
 
         $options = ['name' => 'TestToken'];
-        $normalized = $method->invoke($service, $options);
+        $normalized = $method->invoke($this->service, $options);
 
         $this->assertArrayHasKey('totalSupply', $normalized);
         $this->assertArrayHasKey('trxRatio', $normalized);
@@ -428,10 +334,7 @@ class TokenServiceTest extends TestCase
 
     public function testNormalizeTokenOptionsPreservesProvidedValues(): void
     {
-        $mockTron = $this->createMockTron();
-        $service = new TokenService($mockTron);
-
-        $reflection = new \ReflectionClass($service);
+        $reflection = new \ReflectionClass($this->service);
         $method = $reflection->getMethod('normalizeTokenOptions');
         $method->setAccessible(true);
 
@@ -442,7 +345,7 @@ class TokenServiceTest extends TestCase
             'freeBandwidth' => 100,
         ];
 
-        $normalized = $method->invoke($service, $options);
+        $normalized = $method->invoke($this->service, $options);
 
         $this->assertEquals(1000000, $normalized['totalSupply']);
         $this->assertEquals(5, $normalized['trxRatio']);
@@ -454,17 +357,7 @@ class TokenServiceTest extends TestCase
 
     public function testBuildTokenDataCreatesCorrectStructure(): void
     {
-        $mockTron = $this->createMockTron();
-        $mockTron->method('address2HexString')
-            ->willReturn('41issueraddress')
-        ;
-        $mockTron->method('stringUtf8toHex')
-            ->willReturnCallback(fn ($str) => bin2hex($str))
-        ;
-
-        $service = new TokenService($mockTron);
-
-        $reflection = new \ReflectionClass($service);
+        $reflection = new \ReflectionClass($this->service);
         $method = $reflection->getMethod('buildTokenData');
         $method->setAccessible(true);
 
@@ -484,7 +377,7 @@ class TokenServiceTest extends TestCase
             'frozenDuration' => 0,
         ];
 
-        $result = $method->invoke($service, $options, 'TIssuerAddress');
+        $result = $method->invoke($this->service, $options, 'TIssuerAddress');
 
         $this->assertIsArray($result);
         $this->assertArrayHasKey('owner_address', $result);
@@ -507,17 +400,7 @@ class TokenServiceTest extends TestCase
 
     public function testBuildTokenDataIncludesPrecisionWhenProvided(): void
     {
-        $mockTron = $this->createMockTron();
-        $mockTron->method('address2HexString')
-            ->willReturn('41issueraddress')
-        ;
-        $mockTron->method('stringUtf8toHex')
-            ->willReturnCallback(fn ($str) => bin2hex($str))
-        ;
-
-        $service = new TokenService($mockTron);
-
-        $reflection = new \ReflectionClass($service);
+        $reflection = new \ReflectionClass($this->service);
         $method = $reflection->getMethod('buildTokenData');
         $method->setAccessible(true);
 
@@ -538,7 +421,7 @@ class TokenServiceTest extends TestCase
             'precision' => 6,
         ];
 
-        $result = $method->invoke($service, $options, 'TIssuerAddress');
+        $result = $method->invoke($this->service, $options, 'TIssuerAddress');
 
         $this->assertArrayHasKey('precision', $result);
         $this->assertEquals(6, $result['precision']);
@@ -546,17 +429,7 @@ class TokenServiceTest extends TestCase
 
     public function testBuildTokenDataIncludesVoteScoreWhenProvided(): void
     {
-        $mockTron = $this->createMockTron();
-        $mockTron->method('address2HexString')
-            ->willReturn('41issueraddress')
-        ;
-        $mockTron->method('stringUtf8toHex')
-            ->willReturnCallback(fn ($str) => bin2hex($str))
-        ;
-
-        $service = new TokenService($mockTron);
-
-        $reflection = new \ReflectionClass($service);
+        $reflection = new \ReflectionClass($this->service);
         $method = $reflection->getMethod('buildTokenData');
         $method->setAccessible(true);
 
@@ -577,7 +450,7 @@ class TokenServiceTest extends TestCase
             'voteScore' => 100,
         ];
 
-        $result = $method->invoke($service, $options, 'TIssuerAddress');
+        $result = $method->invoke($this->service, $options, 'TIssuerAddress');
 
         $this->assertArrayHasKey('vote_score', $result);
         $this->assertEquals(100, $result['vote_score']);

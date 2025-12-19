@@ -36,40 +36,69 @@ class ContractCallResult
      */
     public static function fromArray(array $data): self
     {
-        // 提取解码后的输出（通常是索引数组）
-        $decodedOutputs = [];
-        foreach ($data as $key => $value) {
-            // 跳过元数据字段
-            if (in_array($key, ['constant_result', 'Energy_used', 'result', 'transaction'], true)) {
-                continue;
-            }
-            $decodedOutputs[$key] = $value;
-        }
-
-        // 提取常量调用结果
-        $constantResult = null;
-        if (isset($data['constant_result']) && is_array($data['constant_result']) && count($data['constant_result']) > 0) {
-            $constantResult = is_string($data['constant_result'][0]) ? $data['constant_result'][0] : null;
-        }
-
-        // 提取能量消耗
-        $energyUsed = null;
-        if (isset($data['Energy_used'])) {
-            $energyUsed = is_numeric($data['Energy_used']) ? (int) $data['Energy_used'] : null;
-        } elseif (isset($data['energy_used'])) {
-            $energyUsed = is_numeric($data['energy_used']) ? (int) $data['energy_used'] : null;
-        }
-
-        // 判断调用是否成功
-        $success = self::determineSuccess($data);
-
         return new self(
-            $success,
-            $decodedOutputs,
-            $constantResult,
-            $energyUsed,
+            self::determineSuccess($data),
+            self::extractDecodedOutputs($data),
+            self::extractConstantResult($data),
+            self::extractEnergyUsed($data),
             $data
         );
+    }
+
+    /**
+     * 提取解码后的输出参数（跳过元数据字段）
+     *
+     * @param array<string, mixed> $data
+     * @return array<int|string, mixed>
+     */
+    private static function extractDecodedOutputs(array $data): array
+    {
+        $metadataKeys = ['constant_result', 'Energy_used', 'result', 'transaction'];
+        $decodedOutputs = [];
+
+        foreach ($data as $key => $value) {
+            if (!in_array($key, $metadataKeys, true)) {
+                $decodedOutputs[$key] = $value;
+            }
+        }
+
+        return $decodedOutputs;
+    }
+
+    /**
+     * 提取常量调用结果
+     *
+     * @param array<string, mixed> $data
+     */
+    private static function extractConstantResult(array $data): ?string
+    {
+        if (!isset($data['constant_result'])) {
+            return null;
+        }
+
+        if (!is_array($data['constant_result']) || count($data['constant_result']) === 0) {
+            return null;
+        }
+
+        /** @var mixed $firstResult */
+        $firstResult = $data['constant_result'][0];
+        return is_string($firstResult) ? $firstResult : null;
+    }
+
+    /**
+     * 提取能量消耗值
+     *
+     * @param array<string, mixed> $data
+     */
+    private static function extractEnergyUsed(array $data): ?int
+    {
+        $energyValue = $data['Energy_used'] ?? $data['energy_used'] ?? null;
+
+        if ($energyValue === null) {
+            return null;
+        }
+
+        return is_numeric($energyValue) ? (int) $energyValue : null;
     }
 
     /**

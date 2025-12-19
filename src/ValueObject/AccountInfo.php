@@ -11,7 +11,7 @@ use Tourze\TronAPI\Exception\RuntimeException;
  * Account 信息值对象
  * 封装 TRON API getAccount 响应
  */
-class AccountInfo
+readonly class AccountInfo
 {
     /**
      * @param string $address 账户地址（hex格式）
@@ -20,10 +20,10 @@ class AccountInfo
      * @param array<string, mixed> $rawData 原始响应数据（包含所有其他字段）
      */
     private function __construct(
-        private readonly string $address,
-        private readonly int $balance,
-        private readonly array $assetV2,
-        private readonly array $rawData,
+        private string $address,
+        private int $balance,
+        private array $assetV2,
+        private array $rawData,
     ) {
     }
 

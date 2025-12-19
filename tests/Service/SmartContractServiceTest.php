@@ -4,14 +4,15 @@ declare(strict_types=1);
 
 namespace Tourze\TronAPI\Tests\Service;
 
-use PHPUnit\Framework\Assert;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Tourze\TronAPI\Exception\InvalidArgumentException;
 use Tourze\TronAPI\Exception\RuntimeException;
+use Tourze\TronAPI\Provider\InMemoryHttpProvider;
 use Tourze\TronAPI\Service\SmartContractService;
 use Tourze\TronAPI\Tron;
 use Tourze\TronAPI\TronManager;
+use Tourze\TronAPI\ValueObject\ContractCallResult;
 
 /**
  * @internal
@@ -19,14 +20,29 @@ use Tourze\TronAPI\TronManager;
 #[CoversClass(SmartContractService::class)]
 class SmartContractServiceTest extends TestCase
 {
-    private function createMockTron(): Tron
-    {
-        return $this->createMock(Tron::class);
-    }
+    private InMemoryHttpProvider $fullNodeProvider;
 
-    private function createMockManager(): TronManager
+    private Tron $tron;
+
+    private SmartContractService $service;
+
+    protected function setUp(): void
     {
-        return $this->createMock(TronManager::class);
+        $this->fullNodeProvider = new InMemoryHttpProvider();
+
+        $manager = new TronManager([
+            'fullNode' => $this->fullNodeProvider,
+            'solidityNode' => new InMemoryHttpProvider(),
+            'eventServer' => new InMemoryHttpProvider(),
+            'explorer' => new InMemoryHttpProvider(),
+        ]);
+
+        $this->tron = new Tron();
+        // 使用反射设置 manager
+        $reflection = new \ReflectionProperty(Tron::class, 'manager');
+        $reflection->setValue($this->tron, $manager);
+
+        $this->service = new SmartContractService($this->tron);
     }
 
     public function testCanBeInstantiated(): void
@@ -41,14 +57,11 @@ class SmartContractServiceTest extends TestCase
         $this->expectException(\TypeError::class);
         $this->expectExceptionMessage('must be of type array');
 
-        $mockTron = $this->createMockTron();
-        $service = new SmartContractService($mockTron);
-
         $abi = [
             ['name' => 'transfer', 'inputs' => [['type' => 'address'], ['type' => 'uint256']]],
         ];
 
-        $service->triggerSmartContract(
+        $this->service->triggerSmartContract(
             $abi,
             '41testcontractaddress',
             'transfer',
@@ -63,14 +76,11 @@ class SmartContractServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Function nonExistent not defined in ABI');
 
-        $mockTron = $this->createMockTron();
-        $service = new SmartContractService($mockTron);
-
         $abi = [
             ['name' => 'transfer', 'inputs' => [['type' => 'address'], ['type' => 'uint256']]],
         ];
 
-        $service->triggerSmartContract(
+        $this->service->triggerSmartContract(
             $abi,
             '41testcontractaddress',
             'nonExistent', // Function not in ABI
@@ -85,14 +95,11 @@ class SmartContractServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Count of params and abi inputs must be identical');
 
-        $mockTron = $this->createMockTron();
-        $service = new SmartContractService($mockTron);
-
         $abi = [
             ['name' => 'transfer', 'inputs' => [['type' => 'address'], ['type' => 'uint256']]],
         ];
 
-        $service->triggerSmartContract(
+        $this->service->triggerSmartContract(
             $abi,
             '41testcontractaddress',
             'transfer',
@@ -107,14 +114,11 @@ class SmartContractServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('fee_limit must not be greater than 1000000000');
 
-        $mockTron = $this->createMockTron();
-        $service = new SmartContractService($mockTron);
-
         $abi = [
             ['name' => 'transfer', 'inputs' => [['type' => 'address'], ['type' => 'uint256']]],
         ];
 
-        $service->triggerSmartContract(
+        $this->service->triggerSmartContract(
             $abi,
             '41testcontractaddress',
             'transfer',
@@ -129,14 +133,11 @@ class SmartContractServiceTest extends TestCase
         $this->expectException(\TypeError::class);
         $this->expectExceptionMessage('must be of type array');
 
-        $mockTron = $this->createMockTron();
-        $service = new SmartContractService($mockTron);
-
         $abi = [
             ['name' => 'balanceOf', 'inputs' => [['type' => 'address']]],
         ];
 
-        $service->triggerConstantContract(
+        $this->service->triggerConstantContract(
             $abi,
             '41testcontractaddress',
             'balanceOf',
@@ -149,14 +150,11 @@ class SmartContractServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Function nonExistent not defined in ABI');
 
-        $mockTron = $this->createMockTron();
-        $service = new SmartContractService($mockTron);
-
         $abi = [
             ['name' => 'balanceOf', 'inputs' => [['type' => 'address']]],
         ];
 
-        $service->triggerConstantContract(
+        $this->service->triggerConstantContract(
             $abi,
             '41testcontractaddress',
             'nonExistent', // Function not in ABI
@@ -169,14 +167,11 @@ class SmartContractServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Count of params and abi inputs must be identical');
 
-        $mockTron = $this->createMockTron();
-        $service = new SmartContractService($mockTron);
-
         $abi = [
             ['name' => 'balanceOf', 'inputs' => [['type' => 'address']]],
         ];
 
-        $service->triggerConstantContract(
+        $this->service->triggerConstantContract(
             $abi,
             '41testcontractaddress',
             'balanceOf',
@@ -189,25 +184,13 @@ class SmartContractServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('No result field in response');
 
-        $mockManager = $this->createMockManager();
-        $mockTron = $this->createMockTron();
-        $mockTron->expects($this->once())
-            ->method('getManager')
-            ->willReturn($mockManager)
-        ;
-
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->willReturn([]) // No result field
-        ;
-
-        $service = new SmartContractService($mockTron);
+        $this->fullNodeProvider->setResponse('wallet/triggersmartcontract', []); // No result field
 
         $abi = [
             ['name' => 'transfer', 'inputs' => [['type' => 'address'], ['type' => 'uint256']]],
         ];
 
-        $service->triggerSmartContract(
+        $this->service->triggerSmartContract(
             $abi,
             '41testcontractaddress',
             'transfer',
@@ -222,35 +205,17 @@ class SmartContractServiceTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('Failed to execute');
 
-        $mockManager = $this->createMockManager();
-        $mockTron = $this->createMockTron();
-        $mockTron->expects($this->once())
-            ->method('getManager')
-            ->willReturn($mockManager)
-        ;
-
-        $mockTron->expects($this->once())
-            ->method('hexString2Utf8')
-            ->with('48656c6c6f')
-            ->willReturn('Hello')
-        ;
-
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->willReturn([
-                'result' => [
-                    'message' => '48656c6c6f', // "Hello" in hex
-                ],
-            ])
-        ;
-
-        $service = new SmartContractService($mockTron);
+        $this->fullNodeProvider->setResponse('wallet/triggersmartcontract', [
+            'result' => [
+                'message' => '48656c6c6f', // "Hello" in hex
+            ],
+        ]);
 
         $abi = [
             ['name' => 'transfer', 'inputs' => [['type' => 'address'], ['type' => 'uint256']]],
         ];
 
-        $service->triggerSmartContract(
+        $this->service->triggerSmartContract(
             $abi,
             '41testcontractaddress',
             'transfer',
@@ -262,30 +227,18 @@ class SmartContractServiceTest extends TestCase
 
     public function testTriggerConstantContractWithEmptyParams(): void
     {
-        $mockManager = $this->createMockManager();
-        $mockTron = $this->createMockTron();
-        $mockTron->expects($this->once())
-            ->method('getManager')
-            ->willReturn($mockManager)
-        ;
-
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->willReturn([
-                'result' => [
-                    'result' => true,
-                ],
-                'transaction' => ['txID' => 'test123'],
-            ])
-        ;
-
-        $service = new SmartContractService($mockTron);
+        $this->fullNodeProvider->setResponse('wallet/triggerconstantcontract', [
+            'result' => [
+                'result' => true,
+            ],
+            'transaction' => ['txID' => 'test123'],
+        ]);
 
         $abi = [
             ['name' => 'totalSupply', 'inputs' => []],
         ];
 
-        $result = $service->triggerConstantContract(
+        $result = $this->service->triggerConstantContract(
             $abi,
             '41testcontractaddress',
             'totalSupply',
@@ -297,78 +250,46 @@ class SmartContractServiceTest extends TestCase
 
     public function testTriggerConstantContractWithDefaultAddress(): void
     {
-        $mockManager = $this->createMockManager();
-        $mockTron = $this->createMockTron();
-        $mockTron->expects($this->once())
-            ->method('getManager')
-            ->willReturn($mockManager)
-        ;
-
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with(
-                'wallet/triggerconstantcontract',
-                Assert::callback(function ($params) {
-                    return '410000000000000000000000000000000000000000' === $params['owner_address'];
-                })
-            )
-            ->willReturn([
-                'result' => [
-                    'result' => true,
-                ],
-                'transaction' => ['txID' => 'test123'],
-            ])
-        ;
-
-        $service = new SmartContractService($mockTron);
+        $this->fullNodeProvider->setResponse('wallet/triggerconstantcontract', [
+            'result' => [
+                'result' => true,
+            ],
+            'transaction' => ['txID' => 'test123'],
+        ]);
 
         $abi = [
             ['name' => 'totalSupply', 'inputs' => []],
         ];
 
         // Use default address
-        $result = $service->triggerConstantContract(
+        $result = $this->service->triggerConstantContract(
             $abi,
             '41testcontractaddress',
             'totalSupply'
         );
 
         $this->assertIsArray($result);
+
+        // 验证请求使用了默认地址
+        $lastRequest = $this->fullNodeProvider->getLastRequest();
+        $this->assertNotNull($lastRequest);
+        $this->assertSame('410000000000000000000000000000000000000000', $lastRequest['payload']['owner_address']);
     }
 
     public function testTriggerSmartContractBuildsCorrectSignature(): void
     {
-        $mockManager = $this->createMockManager();
-        $mockTron = $this->createMockTron();
-        $mockTron->expects($this->once())
-            ->method('getManager')
-            ->willReturn($mockManager)
-        ;
-
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with(
-                'wallet/triggersmartcontract',
-                Assert::callback(function ($params) {
-                    // Verify function signature is built correctly
-                    return 'transfer(address,uint256)' === $params['function_selector'];
-                })
-            )
-            ->willReturn([
-                'result' => [
-                    'result' => true,
-                ],
-                'transaction' => ['txID' => 'test123'],
-            ])
-        ;
-
-        $service = new SmartContractService($mockTron);
+        $this->fullNodeProvider->setResponse('wallet/triggersmartcontract', [
+            'result' => [
+                'result' => true,
+            ],
+            'transaction' => ['txID' => 'test123'],
+        ]);
 
         $abi = [
             ['name' => 'transfer', 'inputs' => [['type' => 'address'], ['type' => 'uint256']]],
         ];
 
-        $result = $service->triggerSmartContract(
+        $result = $this->service->triggerSmartContract(
             $abi,
             '41testcontractaddress',
             'transfer',
@@ -378,5 +299,63 @@ class SmartContractServiceTest extends TestCase
         );
 
         $this->assertIsArray($result);
+
+        // 验证请求包含正确的函数签名
+        $lastRequest = $this->fullNodeProvider->getLastRequest();
+        $this->assertNotNull($lastRequest);
+        $this->assertSame('transfer(address,uint256)', $lastRequest['payload']['function_selector']);
+    }
+
+    public function testTriggerConstantContractVO(): void
+    {
+        $this->fullNodeProvider->setResponse('wallet/triggerconstantcontract', [
+            'result' => [
+                'result' => true,
+            ],
+            'constant_result' => ['0000000000000000000000000000000000000000000000000000000000000064'],
+            'Energy_used' => 1000,
+        ]);
+
+        $abi = [
+            ['name' => 'balanceOf', 'inputs' => [['type' => 'address']], 'outputs' => [['type' => 'uint256']]],
+        ];
+
+        $result = $this->service->triggerConstantContractVO(
+            $abi,
+            '41testcontractaddress',
+            'balanceOf',
+            ['0x123']
+        );
+
+        $this->assertInstanceOf(ContractCallResult::class, $result);
+        $this->assertTrue($result->isSuccess());
+        $this->assertIsArray($result->toArray());
+    }
+
+    public function testTriggerSmartContractVO(): void
+    {
+        $this->fullNodeProvider->setResponse('wallet/triggersmartcontract', [
+            'result' => [
+                'result' => true,
+            ],
+            'transaction' => ['txID' => 'test456'],
+        ]);
+
+        $abi = [
+            ['name' => 'transfer', 'inputs' => [['type' => 'address'], ['type' => 'uint256']]],
+        ];
+
+        $result = $this->service->triggerSmartContractVO(
+            $abi,
+            '41testcontractaddress',
+            'transfer',
+            ['0x123', 100],
+            1000000,
+            '41testowneraddress'
+        );
+
+        $this->assertInstanceOf(ContractCallResult::class, $result);
+        $this->assertTrue($result->isSuccess());
+        $this->assertIsArray($result->toArray());
     }
 }

@@ -1,12 +1,13 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Tourze\TronAPI\Tests\Service;
 
-use PHPUnit\Framework\Assert;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Tourze\TronAPI\Exception\InvalidArgumentException;
-use Tourze\TronAPI\Exception\RuntimeException;
+use Tourze\TronAPI\Provider\InMemoryHttpProvider;
 use Tourze\TronAPI\Service\ResourceService;
 use Tourze\TronAPI\Tron;
 use Tourze\TronAPI\TronManager;
@@ -17,14 +18,30 @@ use Tourze\TronAPI\TronManager;
 #[CoversClass(ResourceService::class)]
 class ResourceServiceTest extends TestCase
 {
-    private ResourceService $resourceService;
+    private InMemoryHttpProvider $fullNodeProvider;
 
     private Tron $tron;
+
+    private ResourceService $resourceService;
 
     protected function setUp(): void
     {
         parent::setUp();
+
+        $this->fullNodeProvider = new InMemoryHttpProvider();
+
+        $manager = new TronManager([
+            'fullNode' => $this->fullNodeProvider,
+            'solidityNode' => new InMemoryHttpProvider(),
+            'eventServer' => new InMemoryHttpProvider(),
+            'explorer' => new InMemoryHttpProvider(),
+        ]);
+
         $this->tron = new Tron();
+        // 使用反射设置 manager
+        $reflection = new \ReflectionProperty(Tron::class, 'manager');
+        $reflection->setValue($this->tron, $manager);
+
         $this->resourceService = new ResourceService($this->tron);
     }
 
@@ -82,7 +99,7 @@ class ResourceServiceTest extends TestCase
         $this->resourceService->freezeBalance(100.0, -1, 'BANDWIDTH', 'TTest123Address456');
     }
 
-    // freezeBalance() success tests with mocked manager
+    // freezeBalance() success tests
     public function testFreezeBalanceWithBandwidthResource(): void
     {
         $expectedResponse = [
@@ -90,39 +107,24 @@ class ResourceServiceTest extends TestCase
             'txID' => 'mock_tx_id',
         ];
 
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with(
-                $this->equalTo('wallet/freezebalance'),
-                Assert::callback(function ($options) {
-                    return isset($options['owner_address'])
-                        && isset($options['frozen_balance'])
-                        && 100000000 === $options['frozen_balance'] // 100 TRX in sun
-                        && 3 === $options['frozen_duration']
-                        && 'BANDWIDTH' === $options['resource'];
-                })
-            )
-            ->willReturn($expectedResponse)
-        ;
+        $this->fullNodeProvider->setResponse('wallet/freezebalance', $expectedResponse);
 
-        $tron = $this->createMock(Tron::class);
-        $tron->method('getManager')->willReturn($mockManager);
-        $tron->method('address2HexString')->willReturn('41mock_hex_address');
-        $tron->method('toTron')->willReturnCallback(function ($amount) {
-            /** @var numeric-string $amountStr */
-            $amountStr = (string) $amount;
-
-            return (int) bcmul($amountStr, '1000000', 0);
-        });
-
-        $resourceService = new ResourceService($tron);
-        $result = $resourceService->freezeBalance(100.0, 3, 'BANDWIDTH', 'TTest123Address456');
+        $result = $this->resourceService->freezeBalance(100.0, 3, 'BANDWIDTH', 'TTest123Address456');
 
         $this->assertIsArray($result);
         $this->assertArrayHasKey('result', $result);
         $this->assertTrue($result['result']);
         $this->assertArrayHasKey('txID', $result);
+
+        // 验证请求参数
+        $lastRequest = $this->fullNodeProvider->getLastRequest();
+        $this->assertNotNull($lastRequest);
+        $this->assertSame('wallet/freezebalance', $lastRequest['url']);
+        $this->assertArrayHasKey('owner_address', $lastRequest['payload']);
+        $this->assertArrayHasKey('frozen_balance', $lastRequest['payload']);
+        $this->assertSame(100000000, $lastRequest['payload']['frozen_balance']); // 100 TRX in sun
+        $this->assertSame(3, $lastRequest['payload']['frozen_duration']);
+        $this->assertSame('BANDWIDTH', $lastRequest['payload']['resource']);
     }
 
     public function testFreezeBalanceWithEnergyResource(): void
@@ -132,62 +134,35 @@ class ResourceServiceTest extends TestCase
             'txID' => 'mock_tx_id',
         ];
 
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with(
-                $this->equalTo('wallet/freezebalance'),
-                Assert::callback(function ($options) {
-                    return 'ENERGY' === $options['resource']
-                        && 5 === $options['frozen_duration']
-                        && 50000000 === $options['frozen_balance']; // 50 TRX in sun
-                })
-            )
-            ->willReturn($expectedResponse)
-        ;
+        $this->fullNodeProvider->setResponse('wallet/freezebalance', $expectedResponse);
 
-        $tron = $this->createMock(Tron::class);
-        $tron->method('getManager')->willReturn($mockManager);
-        $tron->method('address2HexString')->willReturn('41mock_hex_address');
-        $tron->method('toTron')->willReturnCallback(function ($amount) {
-            /** @var numeric-string $amountStr */
-            $amountStr = (string) $amount;
-
-            return (int) bcmul($amountStr, '1000000', 0);
-        });
-
-        $resourceService = new ResourceService($tron);
-        $result = $resourceService->freezeBalance(50.0, 5, 'ENERGY', 'TTest123Address456');
+        $result = $this->resourceService->freezeBalance(50.0, 5, 'ENERGY', 'TTest123Address456');
 
         $this->assertIsArray($result);
         $this->assertTrue($result['result']);
+
+        // 验证请求参数
+        $lastRequest = $this->fullNodeProvider->getLastRequest();
+        $this->assertNotNull($lastRequest);
+        $this->assertSame('ENERGY', $lastRequest['payload']['resource']);
+        $this->assertSame(5, $lastRequest['payload']['frozen_duration']);
+        $this->assertSame(50000000, $lastRequest['payload']['frozen_balance']); // 50 TRX in sun
     }
 
     public function testFreezeBalanceWithMinimumDuration(): void
     {
         $expectedResponse = ['result' => true];
 
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with(
-                $this->equalTo('wallet/freezebalance'),
-                Assert::callback(function ($options) {
-                    return 3 === $options['frozen_duration'];
-                })
-            )
-            ->willReturn($expectedResponse)
-        ;
+        $this->fullNodeProvider->setResponse('wallet/freezebalance', $expectedResponse);
 
-        $tron = $this->createMock(Tron::class);
-        $tron->method('getManager')->willReturn($mockManager);
-        $tron->method('address2HexString')->willReturn('41mock_hex_address');
-        $tron->method('toTron')->willReturn(100000000);
-
-        $resourceService = new ResourceService($tron);
-        $result = $resourceService->freezeBalance(100.0, 3, 'BANDWIDTH', 'TTest123Address456');
+        $result = $this->resourceService->freezeBalance(100.0, 3, 'BANDWIDTH', 'TTest123Address456');
 
         $this->assertIsArray($result);
+
+        // 验证最小持续时间为3天
+        $lastRequest = $this->fullNodeProvider->getLastRequest();
+        $this->assertNotNull($lastRequest);
+        $this->assertSame(3, $lastRequest['payload']['frozen_duration']);
     }
 
     // unfreezeBalance() exception tests
@@ -215,7 +190,7 @@ class ResourceServiceTest extends TestCase
         $this->resourceService->unfreezeBalance('INVALID', 'TTest123Address456');
     }
 
-    // unfreezeBalance() success tests with mocked manager
+    // unfreezeBalance() success tests
     public function testUnfreezeBalanceWithBandwidthResource(): void
     {
         $expectedResponse = [
@@ -223,30 +198,21 @@ class ResourceServiceTest extends TestCase
             'txID' => 'mock_unfreeze_tx_id',
         ];
 
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with(
-                $this->equalTo('wallet/unfreezebalance'),
-                Assert::callback(function ($options) {
-                    return isset($options['owner_address'])
-                        && 'BANDWIDTH' === $options['resource'];
-                })
-            )
-            ->willReturn($expectedResponse)
-        ;
+        $this->fullNodeProvider->setResponse('wallet/unfreezebalance', $expectedResponse);
 
-        $tron = $this->createMock(Tron::class);
-        $tron->method('getManager')->willReturn($mockManager);
-        $tron->method('address2HexString')->willReturn('41mock_hex_address');
-
-        $resourceService = new ResourceService($tron);
-        $result = $resourceService->unfreezeBalance('BANDWIDTH', 'TTest123Address456');
+        $result = $this->resourceService->unfreezeBalance('BANDWIDTH', 'TTest123Address456');
 
         $this->assertIsArray($result);
         $this->assertArrayHasKey('result', $result);
         $this->assertTrue($result['result']);
         $this->assertArrayHasKey('txID', $result);
+
+        // 验证请求参数
+        $lastRequest = $this->fullNodeProvider->getLastRequest();
+        $this->assertNotNull($lastRequest);
+        $this->assertSame('wallet/unfreezebalance', $lastRequest['url']);
+        $this->assertArrayHasKey('owner_address', $lastRequest['payload']);
+        $this->assertSame('BANDWIDTH', $lastRequest['payload']['resource']);
     }
 
     public function testUnfreezeBalanceWithEnergyResource(): void
@@ -256,27 +222,17 @@ class ResourceServiceTest extends TestCase
             'txID' => 'mock_unfreeze_tx_id',
         ];
 
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with(
-                $this->equalTo('wallet/unfreezebalance'),
-                Assert::callback(function ($options) {
-                    return 'ENERGY' === $options['resource'];
-                })
-            )
-            ->willReturn($expectedResponse)
-        ;
+        $this->fullNodeProvider->setResponse('wallet/unfreezebalance', $expectedResponse);
 
-        $tron = $this->createMock(Tron::class);
-        $tron->method('getManager')->willReturn($mockManager);
-        $tron->method('address2HexString')->willReturn('41mock_hex_address');
-
-        $resourceService = new ResourceService($tron);
-        $result = $resourceService->unfreezeBalance('ENERGY', 'TTest123Address456');
+        $result = $this->resourceService->unfreezeBalance('ENERGY', 'TTest123Address456');
 
         $this->assertIsArray($result);
         $this->assertTrue($result['result']);
+
+        // 验证请求参数
+        $lastRequest = $this->fullNodeProvider->getLastRequest();
+        $this->assertNotNull($lastRequest);
+        $this->assertSame('ENERGY', $lastRequest['payload']['resource']);
     }
 
     // Edge case tests
@@ -284,53 +240,31 @@ class ResourceServiceTest extends TestCase
     {
         $expectedResponse = ['result' => true];
 
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with(
-                $this->equalTo('wallet/freezebalance'),
-                Assert::callback(function ($options) {
-                    return 0 === $options['frozen_balance'];
-                })
-            )
-            ->willReturn($expectedResponse)
-        ;
+        $this->fullNodeProvider->setResponse('wallet/freezebalance', $expectedResponse);
 
-        $tron = $this->createMock(Tron::class);
-        $tron->method('getManager')->willReturn($mockManager);
-        $tron->method('address2HexString')->willReturn('41mock_hex_address');
-        $tron->method('toTron')->willReturn(0);
-
-        $resourceService = new ResourceService($tron);
-        $result = $resourceService->freezeBalance(0.0, 3, 'BANDWIDTH', 'TTest123Address456');
+        $result = $this->resourceService->freezeBalance(0.0, 3, 'BANDWIDTH', 'TTest123Address456');
 
         $this->assertIsArray($result);
+
+        // 验证冻结金额为0
+        $lastRequest = $this->fullNodeProvider->getLastRequest();
+        $this->assertNotNull($lastRequest);
+        $this->assertSame(0, $lastRequest['payload']['frozen_balance']);
     }
 
     public function testFreezeBalanceWithLargeAmount(): void
     {
         $expectedResponse = ['result' => true];
 
-        $mockManager = $this->createMock(TronManager::class);
-        $mockManager->expects($this->once())
-            ->method('request')
-            ->with(
-                $this->equalTo('wallet/freezebalance'),
-                Assert::callback(function ($options) {
-                    return 1000000000000 === $options['frozen_balance']; // 1,000,000 TRX
-                })
-            )
-            ->willReturn($expectedResponse)
-        ;
+        $this->fullNodeProvider->setResponse('wallet/freezebalance', $expectedResponse);
 
-        $tron = $this->createMock(Tron::class);
-        $tron->method('getManager')->willReturn($mockManager);
-        $tron->method('address2HexString')->willReturn('41mock_hex_address');
-        $tron->method('toTron')->willReturn(1000000000000);
-
-        $resourceService = new ResourceService($tron);
-        $result = $resourceService->freezeBalance(1000000.0, 10, 'BANDWIDTH', 'TTest123Address456');
+        $result = $this->resourceService->freezeBalance(1000000.0, 10, 'BANDWIDTH', 'TTest123Address456');
 
         $this->assertIsArray($result);
+
+        // 验证大额冻结（1,000,000 TRX = 1,000,000,000,000 SUN）
+        $lastRequest = $this->fullNodeProvider->getLastRequest();
+        $this->assertNotNull($lastRequest);
+        $this->assertSame(1000000000000, $lastRequest['payload']['frozen_balance']);
     }
 }

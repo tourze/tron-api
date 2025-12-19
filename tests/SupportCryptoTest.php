@@ -27,31 +27,35 @@ class SupportCryptoTest extends TestCase
     {
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Invalid Base: 1');
-        // @phpstan-ignore argument.type
-        Crypto::dec2base('100', 1);
+        // 使用反射绕过类型系统以测试运行时验证
+        $method = new \ReflectionMethod(Crypto::class, 'dec2base');
+        $method->invoke(null, '100', 1);
     }
 
     public function testDec2baseThrowsExceptionForInvalidBaseTooLarge(): void
     {
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Invalid Base: 257');
-        // @phpstan-ignore argument.type
-        Crypto::dec2base('100', 257);
+        // 使用反射绕过类型系统以测试运行时验证
+        $method = new \ReflectionMethod(Crypto::class, 'dec2base');
+        $method->invoke(null, '100', 257);
     }
 
     public function testBase2decThrowsExceptionForInvalidBaseTooSmall(): void
     {
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Invalid Base: 1');
-        // @phpstan-ignore argument.type
-        Crypto::base2dec('100', 1);
+        // 使用反射绕过类型系统以测试运行时验证
+        $method = new \ReflectionMethod(Crypto::class, 'base2dec');
+        $method->invoke(null, '100', 1);
     }
 
     public function testBase2decThrowsExceptionForInvalidBaseTooLarge(): void
     {
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Invalid Base: 257');
-        // @phpstan-ignore argument.type
-        Crypto::base2dec('100', 257);
+        // 使用反射绕过类型系统以测试运行时验证
+        $method = new \ReflectionMethod(Crypto::class, 'base2dec');
+        $method->invoke(null, '100', 257);
     }
 }

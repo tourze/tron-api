@@ -622,4 +622,140 @@ class TRC20ContractTest extends TestCase
         $this->assertIsArray($result);
         $this->assertArrayHasKey('result', $result);
     }
+
+    public function testSendTransferReturnsTransactionResult(): void
+    {
+        // 创建 Mock Tron 实例
+        $tron = $this->createMock(Tron::class);
+        $tron->address = ['base58' => 'TFromAddress123', 'hex' => '41from'];
+
+        // 模拟 address2HexString 方法 - 会被调用3次
+        $tron->expects($this->exactly(3))
+            ->method('address2HexString')
+            ->willReturnCallback(function ($addr) {
+                if ('TToAddress456' === $addr) {
+                    return '41to';
+                }
+                if ('TFromAddress123' === $addr) {
+                    return '41from';
+                }
+                if ('TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t' === $addr) {
+                    return '41contract';
+                }
+
+                return '41unknown';
+            })
+        ;
+
+        // 创建一个模拟的 TransactionBuilder
+        $txBuilder = $this->createMock(TransactionBuilder::class);
+        $mockTransaction = ['txID' => 'mock_tx_id_123', 'raw_data' => ['contract' => []]];
+        $txBuilder->expects($this->once())
+            ->method('triggerSmartContract')
+            ->willReturn($mockTransaction)
+        ;
+
+        $tron->expects($this->once())
+            ->method('getTransactionBuilder')
+            ->willReturn($txBuilder)
+        ;
+
+        // 模拟签名交易
+        $signedTx = ['txID' => 'mock_tx_id_123', 'signature' => ['sig1'], 'raw_data' => ['contract' => []]];
+        $tron->expects($this->once())
+            ->method('signTransaction')
+            ->with($mockTransaction)
+            ->willReturn($signedTx)
+        ;
+
+        // 模拟发送交易
+        $response = ['result' => true, 'code' => 'SUCCESS'];
+        $tron->expects($this->once())
+            ->method('sendRawTransaction')
+            ->with($signedTx)
+            ->willReturn($response)
+        ;
+
+        $contract = new TRC20Contract($tron, 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t');
+
+        // 注入缓存的 decimals
+        $reflection = new \ReflectionClass($contract);
+        $decimalsProp = $reflection->getProperty('_decimals');
+        $decimalsProp->setAccessible(true);
+        $decimalsProp->setValue($contract, 6);
+
+        // 执行 sendTransfer，验证返回 TransactionResult VO 对象
+        $result = $contract->sendTransfer('TToAddress456', '100');
+
+        // 验证返回的是 TransactionResult 对象
+        $this->assertInstanceOf(\Tourze\TronAPI\ValueObject\TransactionResult::class, $result);
+    }
+
+    public function testSendTransferWithCustomFromAddress(): void
+    {
+        // 创建 Mock Tron 实例
+        $tron = $this->createMock(Tron::class);
+        $tron->address = ['base58' => 'TDefaultAddress', 'hex' => '41default'];
+
+        // 模拟 address2HexString 方法 - 会被调用3次
+        $tron->expects($this->exactly(3))
+            ->method('address2HexString')
+            ->willReturnCallback(function ($addr) {
+                if ('TToAddress456' === $addr) {
+                    return '41to';
+                }
+                if ('TCustomFrom789' === $addr) {
+                    return '41customfrom';
+                }
+                if ('TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t' === $addr) {
+                    return '41contract';
+                }
+
+                return '41unknown';
+            })
+        ;
+
+        // 创建一个模拟的 TransactionBuilder
+        $txBuilder = $this->createMock(TransactionBuilder::class);
+        $mockTransaction = ['txID' => 'mock_tx_id', 'raw_data' => []];
+        $txBuilder->expects($this->once())
+            ->method('triggerSmartContract')
+            ->willReturn($mockTransaction)
+        ;
+
+        $tron->expects($this->once())
+            ->method('getTransactionBuilder')
+            ->willReturn($txBuilder)
+        ;
+
+        // 模拟签名交易
+        $signedTx = ['txID' => 'mock_tx_id', 'signature' => ['sig1']];
+        $tron->expects($this->once())
+            ->method('signTransaction')
+            ->with($mockTransaction)
+            ->willReturn($signedTx)
+        ;
+
+        // 模拟发送交易
+        $response = ['result' => true];
+        $tron->expects($this->once())
+            ->method('sendRawTransaction')
+            ->with($signedTx)
+            ->willReturn($response)
+        ;
+
+        $contract = new TRC20Contract($tron, 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t');
+
+        // 注入缓存的 decimals
+        $reflection = new \ReflectionClass($contract);
+        $decimalsProp = $reflection->getProperty('_decimals');
+        $decimalsProp->setAccessible(true);
+        $decimalsProp->setValue($contract, 6);
+
+        // 执行 sendTransfer，指定 from 地址
+        $result = $contract->sendTransfer('TToAddress456', '100', 'TCustomFrom789');
+
+        // 验证返回 TransactionResult 对象
+        $this->assertInstanceOf(\Tourze\TronAPI\ValueObject\TransactionResult::class, $result);
+    }
 }

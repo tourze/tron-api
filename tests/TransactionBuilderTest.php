@@ -1348,14 +1348,9 @@ class TransactionBuilderTest extends TestCase
             ],
         ];
 
-        $builder->triggerSmartContract(
-            $abi,
-            '41contract',
-            'transfer',
-            'invalid_params', // @phpstan-ignore-line argument.type
-            1000000,
-            '41from'
-        );
+        // 使用反射绕过类型系统以测试运行时验证
+        $method = new \ReflectionMethod(TransactionBuilder::class, 'triggerSmartContract');
+        $method->invoke($builder, $abi, '41contract', 'transfer', 'invalid_params', 1000000, '41from');
     }
 
     public function testTriggerSmartContractThrowsExceptionForParamCountMismatch(): void
@@ -1580,12 +1575,9 @@ class TransactionBuilderTest extends TestCase
             ],
         ];
 
-        $builder->triggerConstantContract(
-            $abi,
-            '41contract',
-            'balanceOf',
-            'invalid_params' // @phpstan-ignore-line argument.type
-        );
+        // 使用反射绕过类型系统以测试运行时验证
+        $method = new \ReflectionMethod(TransactionBuilder::class, 'triggerConstantContract');
+        $method->invoke($builder, $abi, '41contract', 'balanceOf', 'invalid_params');
     }
 
     public function testTriggerConstantContractThrowsExceptionForParamCountMismatch(): void
@@ -1616,7 +1608,67 @@ class TransactionBuilderTest extends TestCase
 
     // ========== contractbalance() 测试 ==========
 
-    public function testContractBalanceReturnsEmptyArrayWhenTokenDataIsInvalid(): void
+    public function testContractbalanceSuccess(): void
+    {
+        $tron = $this->createMock(Tron::class);
+        $smartContractService = $this->createMock(SmartContractService::class);
+
+        // Mock expected return data structure
+        $expectedTokens = [
+            [
+                'tokenId' => 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+                'balance' => '1000000000',
+                'tokenAbbr' => 'USDT',
+                'tokenName' => 'Tether USD',
+                'tokenDecimal' => 6,
+            ],
+            [
+                'tokenId' => 'TKkeiboTkxXKJpbmVFbv4a8ov5rAfRDMf9',
+                'balance' => '5000000000000000000',
+                'tokenAbbr' => 'BTT',
+                'tokenName' => 'BitTorrent',
+                'tokenDecimal' => 18,
+            ],
+        ];
+
+        // Create mock TokenQueryService that returns valid token data
+        $tokenQueryService = new class($tron, $smartContractService, $expectedTokens) extends TokenQueryService {
+            private array $expectedTokens;
+
+            public function __construct(Tron $tron, SmartContractService $smartContractService, array $expectedTokens)
+            {
+                parent::__construct($tron, $smartContractService);
+                $this->expectedTokens = $expectedTokens;
+            }
+
+            public function contractbalance(string $address): array
+            {
+                return $this->expectedTokens;
+            }
+        };
+
+        // Create TransactionBuilder with mocked TokenQueryService
+        $builder = new class($tron, $tokenQueryService) extends TransactionBuilder {
+            public function __construct(Tron $tron, TokenQueryService $tokenQueryService)
+            {
+                parent::__construct($tron);
+                $this->tokenQueryService = $tokenQueryService;
+            }
+        };
+
+        $result = $builder->contractbalance('TTestAddress123456789');
+
+        $this->assertIsArray($result);
+        $this->assertNotEmpty($result);
+        $this->assertCount(2, $result);
+        $this->assertArrayHasKey('tokenId', $result[0]);
+        $this->assertArrayHasKey('balance', $result[0]);
+        $this->assertArrayHasKey('tokenAbbr', $result[0]);
+        $this->assertEquals('TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t', $result[0]['tokenId']);
+        $this->assertEquals('USDT', $result[0]['tokenAbbr']);
+    }
+
+    public function testContractbalanceReturnsEmptyArrayWhenTokenDataIsInvalid(): void
     {
         $tron = $this->createMock(Tron::class);
         $smartContractService = $this->createMock(SmartContractService::class);
@@ -1644,7 +1696,7 @@ class TransactionBuilderTest extends TestCase
         $this->assertEmpty($result);
     }
 
-    public function testContractBalanceReturnsEmptyArrayWhenAbiIsInvalid(): void
+    public function testContractbalanceReturnsEmptyArrayWhenAbiIsInvalid(): void
     {
         $tron = $this->createMock(Tron::class);
         $smartContractService = $this->createMock(SmartContractService::class);

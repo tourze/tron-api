@@ -27,6 +27,12 @@ class EncodingService
     public function fromHex(string $hexString): string
     {
         $hex = str_replace('0x', '', $hexString);
+
+        // 验证是否为有效的十六进制字符串
+        if (!$this->isValidHex($hex)) {
+            return '';
+        }
+
         $result = hex2bin($hex);
 
         return false !== $result ? $result : '';
@@ -45,31 +51,14 @@ class EncodingService
      */
     public function hexString2Utf8(string $hexString): string
     {
+        // 验证是否为有效的十六进制字符串
+        if (!$this->isValidHex($hexString)) {
+            return '';
+        }
+
         $string = hex2bin($hexString);
 
         return false !== $string ? $string : '';
-    }
-
-    /**
-     * 转换为TRX金额单位（返回SUN）
-     * 推荐使用 TronAmount::fromTrx() 替代此方法以获得更好的类型安全
-     *
-     * @deprecated 使用 TronAmount::fromTrx() 替代
-     */
-    public function toTron(float $amount): int
-    {
-        return (int) bcmul((string) $amount, '1000000', 0);
-    }
-
-    /**
-     * 从TRX金额单位转换（从SUN转换）
-     * 推荐使用 TronAmount::fromSun() 替代此方法以获得更好的类型安全
-     *
-     * @deprecated 使用 TronAmount::fromSun() 替代
-     */
-    public function fromTron(int $amount): float
-    {
-        return (float) bcdiv((string) $amount, '1000000', 6);
     }
 
     /**
@@ -105,6 +94,25 @@ class EncodingService
 
         // Base58检查地址解码逻辑
         return $this->base58CheckDecode($address);
+    }
+
+    /**
+     * 验证是否为有效的十六进制字符串
+     */
+    private function isValidHex(string $hex): bool
+    {
+        // 空字符串视为有效（hex2bin('')返回''）
+        if ('' === $hex) {
+            return true;
+        }
+
+        // 十六进制字符串长度必须为偶数
+        if (0 !== strlen($hex) % 2) {
+            return false;
+        }
+
+        // 检查是否只包含有效的十六进制字符
+        return 1 === preg_match('/^[0-9a-fA-F]+$/', $hex);
     }
 
     /**

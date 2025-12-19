@@ -58,7 +58,7 @@ final readonly class AbiParameter
     }
 
     /**
-     * Convert to array format expected by Ethabi
+     * 转换为 Ethabi 期望的数组格式
      *
      * @return array<string, mixed>
      */
@@ -78,7 +78,7 @@ final readonly class AbiParameter
     }
 
     /**
-     * Get the parameter type
+     * 获取参数类型
      */
     public function getType(): string
     {

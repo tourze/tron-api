@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tourze\TronAPI\Exception;
 
 /**
- * Exception thrown when an error occurs during runtime
+ * 运行时发生错误时抛出的异常
  */
 class RuntimeException extends \RuntimeException
 {

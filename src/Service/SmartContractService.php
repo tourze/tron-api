@@ -58,15 +58,42 @@ class SmartContractService
     ): array {
         $func_abi = $this->findFunctionInAbi($abi, $function);
         $this->validateSmartContractParams($params, $func_abi, $feeLimit);
-
-        $signature = $func_abi->buildSignature();
         $eth_abi = $this->createEthabi();
-        // Convert associative array to indexed array for encodeParameters
+
+        $result = $this->triggerSmartContractRaw($func_abi, $eth_abi, $contract, $address, $feeLimit, $params, $callValue, $bandwidthLimit);
+
+        return $this->processSmartContractResult($result, $func_abi, $eth_abi);
+    }
+
+    /**
+     * 触发智能合约（返回原始响应）
+     *
+     * @param AbiFunction $func_abi
+     * @param Ethabi $eth_abi
+     * @param string $contract
+     * @param string $address
+     * @param int $feeLimit
+     * @param array<string|int, mixed> $params
+     * @param int $callValue
+     * @param int $bandwidthLimit
+     * @return mixed
+     */
+    private function triggerSmartContractRaw(
+        AbiFunction $func_abi,
+        Ethabi $eth_abi,
+        string $contract,
+        string $address,
+        int $feeLimit,
+        array $params,
+        int $callValue = 0,
+        int $bandwidthLimit = 0,
+    ): mixed {
+        $signature = $func_abi->buildSignature();
         /** @var array<int, mixed> $indexedParams */
         $indexedParams = array_values($params);
         $parameters = substr($eth_abi->encodeParameters($func_abi->toArray(), $indexedParams), 2);
 
-        $result = $this->tron->getManager()->request('wallet/triggersmartcontract', [
+        return $this->tron->getManager()->request('wallet/triggersmartcontract', [
             'contract_address' => $contract,
             'function_selector' => $signature,
             'parameter' => $parameters,
@@ -75,8 +102,6 @@ class SmartContractService
             'call_value' => $callValue,
             'consume_user_resource_percent' => $bandwidthLimit,
         ]);
-
-        return $this->processSmartContractResult($result, $func_abi, $eth_abi);
     }
 
     /**
@@ -100,22 +125,41 @@ class SmartContractService
     ): array {
         $func_abi = $this->findFunctionInAbi($abi, $function);
         $this->validateConstantContractParams($params, $func_abi);
-
-        $signature = $func_abi->buildSignature();
         $eth_abi = $this->createEthabi();
-        // Convert associative array to indexed array for encodeParameters
+
+        $result = $this->triggerConstantContractRaw($func_abi, $eth_abi, $contract, $address, $params);
+
+        return $this->processConstantContractResult($result, $func_abi, $eth_abi);
+    }
+
+    /**
+     * 触发常量合约（返回原始响应）
+     *
+     * @param AbiFunction $func_abi
+     * @param Ethabi $eth_abi
+     * @param string $contract
+     * @param string $address
+     * @param array<string|int, mixed> $params
+     * @return mixed
+     */
+    private function triggerConstantContractRaw(
+        AbiFunction $func_abi,
+        Ethabi $eth_abi,
+        string $contract,
+        string $address,
+        array $params,
+    ): mixed {
+        $signature = $func_abi->buildSignature();
         /** @var array<int, mixed> $indexedParams */
         $indexedParams = array_values($params);
         $parameters = substr($eth_abi->encodeParameters($func_abi->toArray(), $indexedParams), 2);
 
-        $result = $this->tron->getManager()->request('wallet/triggerconstantcontract', [
+        return $this->tron->getManager()->request('wallet/triggerconstantcontract', [
             'contract_address' => $contract,
             'function_selector' => $signature,
             'parameter' => $parameters,
             'owner_address' => $address,
         ]);
-
-        return $this->processConstantContractResult($result, $func_abi, $eth_abi);
     }
 
     /**
@@ -142,18 +186,17 @@ class SmartContractService
         int $callValue = 0,
         int $bandwidthLimit = 0,
     ): ContractCallResult {
-        $result = $this->triggerSmartContract(
-            $abi,
-            $contract,
-            $function,
-            $params,
-            $feeLimit,
-            $address,
-            $callValue,
-            $bandwidthLimit
-        );
+        $func_abi = $this->findFunctionInAbi($abi, $function);
+        $this->validateSmartContractParams($params, $func_abi, $feeLimit);
+        $eth_abi = $this->createEthabi();
 
-        return ContractCallResult::fromArray($result);
+        $rawResult = $this->triggerSmartContractRaw($func_abi, $eth_abi, $contract, $address, $feeLimit, $params, $callValue, $bandwidthLimit);
+
+        if (!is_array($rawResult)) {
+            throw new InvalidArgumentException('Expected array result from contract call, got: ' . gettype($rawResult));
+        }
+
+        return ContractCallResult::fromArray($rawResult);
     }
 
     /**
@@ -174,15 +217,17 @@ class SmartContractService
         array $params = [],
         string $address = '410000000000000000000000000000000000000000',
     ): ContractCallResult {
-        $result = $this->triggerConstantContract(
-            $abi,
-            $contract,
-            $function,
-            $params,
-            $address
-        );
+        $func_abi = $this->findFunctionInAbi($abi, $function);
+        $this->validateConstantContractParams($params, $func_abi);
+        $eth_abi = $this->createEthabi();
 
-        return ContractCallResult::fromArray($result);
+        $rawResult = $this->triggerConstantContractRaw($func_abi, $eth_abi, $contract, $address, $params);
+
+        if (!is_array($rawResult)) {
+            throw new InvalidArgumentException('Expected array result from contract call, got: ' . gettype($rawResult));
+        }
+
+        return ContractCallResult::fromArray($rawResult);
     }
 
     /**

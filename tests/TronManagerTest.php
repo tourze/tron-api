@@ -117,4 +117,119 @@ class TronManagerTest extends TestCase
         // Skip network-dependent test
         self::markTestSkipped('Network connectivity test skipped in CI/offline environment');
     }
+
+    public function testRequestRoutesToFullNode(): void
+    {
+        $mockProvider = $this->createMock(HttpProviderInterface::class);
+        $mockProvider->expects($this->once())
+            ->method('request')
+            ->with('wallet/getaccount', ['address' => 'test'], 'post')
+            ->willReturn(['result' => 'success']);
+
+        $manager = new TronManager([
+            'fullNode' => $mockProvider,
+            'solidityNode' => null,
+            'eventServer' => null,
+            'signServer' => null,
+        ]);
+
+        $result = $manager->request('wallet/getaccount', ['address' => 'test'], 'post');
+        $this->assertEquals(['result' => 'success'], $result);
+    }
+
+    public function testRequestRoutesToSolidityNode(): void
+    {
+        $mockProvider = $this->createMock(HttpProviderInterface::class);
+        $mockProvider->expects($this->once())
+            ->method('request')
+            ->with('walletsolidity/getaccount', ['address' => 'test'], 'post')
+            ->willReturn(['result' => 'success']);
+
+        $manager = new TronManager([
+            'fullNode' => null,
+            'solidityNode' => $mockProvider,
+            'eventServer' => null,
+            'signServer' => null,
+        ]);
+
+        $result = $manager->request('walletsolidity/getaccount', ['address' => 'test'], 'post');
+        $this->assertEquals(['result' => 'success'], $result);
+    }
+
+    public function testRequestRoutesToEventServer(): void
+    {
+        $mockProvider = $this->createMock(HttpProviderInterface::class);
+        $mockProvider->expects($this->once())
+            ->method('request')
+            ->with('event/gettransaction', ['txid' => 'test'], 'get')
+            ->willReturn(['result' => 'success']);
+
+        $manager = new TronManager([
+            'fullNode' => null,
+            'solidityNode' => null,
+            'eventServer' => $mockProvider,
+            'signServer' => null,
+        ]);
+
+        $result = $manager->request('event/gettransaction', ['txid' => 'test'], 'post');
+        $this->assertEquals(['result' => 'success'], $result);
+    }
+
+    public function testRequestRoutesToSignServer(): void
+    {
+        $mockProvider = $this->createMock(HttpProviderInterface::class);
+        $mockProvider->expects($this->once())
+            ->method('request')
+            ->with('trx-sign/sign', ['data' => 'test'], 'post')
+            ->willReturn(['result' => 'success']);
+
+        $manager = new TronManager([
+            'fullNode' => null,
+            'solidityNode' => null,
+            'eventServer' => null,
+            'signServer' => $mockProvider,
+        ]);
+
+        $result = $manager->request('trx-sign/sign', ['data' => 'test'], 'post');
+        $this->assertEquals(['result' => 'success'], $result);
+    }
+
+    public function testRequestRoutesToExplorer(): void
+    {
+        $mockProvider = $this->createMock(HttpProviderInterface::class);
+        $mockProvider->expects($this->once())
+            ->method('request')
+            ->with('api/system/status', [], 'get')
+            ->willReturn(['result' => 'success']);
+
+        $manager = new TronManager([
+            'fullNode' => null,
+            'solidityNode' => null,
+            'eventServer' => null,
+            'signServer' => null,
+            'explorer' => $mockProvider,
+        ]);
+
+        $result = $manager->request('api/system/status', [], 'post');
+        $this->assertEquals(['result' => 'success'], $result);
+    }
+
+    public function testRequestWithWalletExtensionRoutesToSolidityNode(): void
+    {
+        $mockProvider = $this->createMock(HttpProviderInterface::class);
+        $mockProvider->expects($this->once())
+            ->method('request')
+            ->with('walletextension/gettransactioninfobyid', ['value' => 'test'], 'get')
+            ->willReturn(['result' => 'success']);
+
+        $manager = new TronManager([
+            'fullNode' => null,
+            'solidityNode' => $mockProvider,
+            'eventServer' => null,
+            'signServer' => null,
+        ]);
+
+        $result = $manager->request('walletextension/gettransactioninfobyid', ['value' => 'test'], 'get');
+        $this->assertEquals(['result' => 'success'], $result);
+    }
 }

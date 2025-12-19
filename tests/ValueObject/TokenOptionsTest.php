@@ -692,17 +692,14 @@ class TokenOptionsTest extends TestCase
             url: $options['url'],
         );
 
-        try {
-            // Attempt to modify readonly property
-            // PHPStan correctly prevents this at compile time, but we need to test runtime behavior
-            // PHPStan limitation: it cannot detect that modifying readonly properties throws \Error at runtime
-            // @phpstan-ignore property.readOnlyAssignOutOfClass
-            $tokenOptions->name = 'Modified Name';
-            self::fail('Expected Error exception was not thrown');
-            // @phpstan-ignore catch.neverThrown
-        } catch (\Error $e) {
-            $this->assertStringContainsString('Cannot modify readonly property', $e->getMessage());
-        }
+        // 使用反射验证 readonly 属性在运行时的行为
+        $property = new \ReflectionProperty(TokenOptions::class, 'name');
+        $this->assertTrue($property->isReadOnly(), 'Property name should be readonly');
+
+        // 尝试通过反射修改 readonly 属性会抛出错误
+        $this->expectException(\Error::class);
+        $this->expectExceptionMessageMatches('/Cannot modify readonly property/');
+        $property->setValue($tokenOptions, 'Modified Name');
     }
 
     public function testBoundaryValueForMinimumValidSupply(): void
